@@ -180,26 +180,82 @@ outputStream.close()
 
 }
 
-
 import java.io.*
 
-fun convertToWav(inputFilePath: String, outputFilePath: String) {
-    val audioDataFile = File(inputFilePath)
-    val audioData = audioDataFile.readBytes()
+fun convertToWav(inputFilePath: String, outputFilePath: String, sampleRate: Int, channels: Int, bitsPerSample: Int) {
+    try {
+        // 读取输入的音频样本数据文件
+        val inputFile = File(inputFilePath)
+        val inputStream = DataInputStream(FileInputStream(inputFile))
+        val audioData = ByteArray(inputFile.length().toInt())
+        inputStream.readFully(audioData)
+        inputStream.close()
 
-    val audioFormat = AudioFormat.Encoding.PCM_SIGNED
-    val sampleRate = 44100f // Sample rate in Hz
-    val sampleSizeInBits = 16 // Bits per sample
-    val channels = 1 // Mono channel
-    val frameSize = (sampleSizeInBits / 8) * channels
-    val frameRate = sampleRate.toInt()
-    val bigEndian = false
+        // 创建输出的 WAV 文件
+        val outputFile = File(outputFilePath)
+        val outputStream = DataOutputStream(FileOutputStream(outputFile))
 
-    val audioFormat = AudioFormat(audioFormat, sampleRate, sampleSizeInBits, channels, frameSize, frameRate, bigEndian)
+        // 写入 WAV 文件头
+        val totalAudioLen = audioData.size.toLong()
+        val totalDataLen = totalAudioLen + 36
+        val byteRate = (sampleRate * channels * (bitsPerSample / 8)).toLong()
 
-    val audioInputStream = AudioInputStream(ByteArrayInputStream(audioData), audioFormat, audioData.size.toLong())
+        // 写入文件标志 "RIFF"
+        outputStream.writeBytes("RIFF")
+        // 写入总大小
+        outputStream.write(intToByteArray(totalDataLen.toInt()), 0, 4)
+        // 写入文件类型 "WAVE"
+        outputStream.writeBytes("WAVE")
+        // 写入格式块标志 "fmt "
+        outputStream.writeBytes("fmt ")
+        // 写入格式块大小
+        outputStream.write(intToByteArray(16), 0, 4)
+        // 写入音频格式（PCM）
+        outputStream.write(shortToByteArray(1), 0, 2)
+        // 写入通道数
+        outputStream.write(shortToByteArray(channels), 0, 2)
+        // 写入采样率
+        outputStream.write(intToByteArray(sampleRate), 0, 4)
+        // 写入字节率
+        outputStream.write(intToByteArray(byteRate.toInt()), 0, 4)
+        // 写入块对齐
+        outputStream.write(shortToByteArray((channels * (bitsPerSample / 8))).toInt(), 0, 2)
+        // 写入位深度
+        outputStream.write(shortToByteArray(bitsPerSample), 0, 2)
+        // 写入数据块标志 "data"
+        outputStream.writeBytes("data")
+        // 写入音频数据大小
+        outputStream.write(intToByteArray(totalAudioLen.toInt()), 0, 4)
+        // 写入音频数据
+        outputStream.write(audioData)
 
-    val wavFile = File(outputFilePath)
-    AudioSystem.write(audioInputStream, AudioFileFormat.Type.WAVE, wavFile)
+        outputStream.close()
+        println("转换完成！WAV 文件已保存为：$outputFilePath")
+    } catch (e: IOException) {
+        e.printStackTrace()
+    }
 }
 
+fun intToByteArray(value: Int): ByteArray {
+    return byteArrayOf(
+        (value and 0xFF).toByte(),
+        (value shr 8 and 0xFF).toByte(),
+        (value shr 16 and 0xFF).toByte(),
+        (value shr 24 and 0xFF).toByte()
+    )
+}
+
+fun shortToByteArray(value: Int): ByteArray {
+    return byteArrayOf((value and 0xFF).toByte(), (value shr 8 and 0xFF).toByte())
+}
+
+// 使用示例
+fun main() {
+    val inputFilePath = "path/to/inputfile.dat"
+    val outputFilePath = "path/to/outputfile.wav"
+    val sampleRate = 44100 // 采样率
+    val channels = 2 // 声道数
+    val bitsPerSample = 16 // 位深度
+
+    convertToWav(inputFilePath, outputFilePath, sampleRate, channels, bitsPerSample)
+}
