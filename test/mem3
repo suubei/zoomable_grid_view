@@ -1,34 +1,29 @@
-fun convertMP4ALATMtoWAV(mp4aFilePath: String, wavFilePath: String) {
-        val mp4aFile = File(mp4aFilePath)
+class AudioConverter {
+    // ...
+
+    fun convertAACtoWAV(aacFilePath: String, wavFilePath: String): Boolean {
+        val aacFile = File(aacFilePath)
         val wavFile = File(wavFilePath)
 
         try {
             val mediaExtractor = MediaExtractor()
-            mediaExtractor.setDataSource(mp4aFile.path)
+            mediaExtractor.setDataSource(aacFile.path)
 
             val audioTrackIndex = selectAudioTrack(mediaExtractor)
 
             mediaExtractor.selectTrack(audioTrackIndex)
             val mediaFormat = mediaExtractor.getTrackFormat(audioTrackIndex)
 
-            val mp4aMimeType = mediaFormat.getString(MediaFormat.KEY_MIME)
+            val mimeType = mediaFormat.getString(MediaFormat.KEY_MIME)
             val channelCount = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
 
-            val mediaCodec = MediaCodec.createDecoderByType(mp4aMimeType)
+            val mediaCodec = MediaCodec.createDecoderByType(mimeType)
             mediaCodec.configure(mediaFormat, null, null, 0)
             mediaCodec.start()
 
-            val bufferSize = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_STEREO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-            val audioData = ByteArray(bufferSize)
-
             val outputStream = DataOutputStream(FileOutputStream(wavFile))
 
-            var bytesRead = 0
             var totalBytesWritten = 0L
 
             // Read and convert the audio data
@@ -36,7 +31,7 @@ fun convertMP4ALATMtoWAV(mp4aFilePath: String, wavFilePath: String) {
                 val inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)
                 if (inputBufferIndex >= 0) {
                     val inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex)!!
-                    bytesRead = mediaExtractor.readSampleData(inputBuffer, 0)
+                    val bytesRead = mediaExtractor.readSampleData(inputBuffer, 0)
 
                     if (bytesRead >= 0) {
                         val presentationTimeUs = mediaExtractor.sampleTime
@@ -45,7 +40,7 @@ fun convertMP4ALATMtoWAV(mp4aFilePath: String, wavFilePath: String) {
                             0,
                             bytesRead,
                             presentationTimeUs,
-                            if (bytesRead < 0) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0
+                            0
                         )
                         mediaExtractor.advance()
                     } else {
@@ -89,7 +84,14 @@ fun convertMP4ALATMtoWAV(mp4aFilePath: String, wavFilePath: String) {
             mediaCodec.release()
             mediaExtractor.release()
             outputStream.close()
+
+            return true
         } catch (e: IOException) {
             e.printStackTrace()
         }
+
+        return false
     }
+
+    // ...
+}
