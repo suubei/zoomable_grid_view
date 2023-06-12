@@ -90,3 +90,41 @@ class AudioConverter {
             outputStream.close()
         } catch (e: IOException) {
            
+           
+           
+           
+           
+           
+           
+           
+           
+           
+           
+           
+           
+private fun writeWavHeader(
+    outputStream: DataOutputStream,
+    audioDataSize: Long,
+    sampleRate: Int,
+    channelCount: Int,
+    audioFormat: Int
+) {
+    val totalAudioLen = audioDataSize + 36
+    val byteRate = sampleRate * channelCount * (audioFormat / 8)
+
+    // Write WAV header
+    outputStream.writeBytes("RIFF")
+    outputStream.write(intToByteArray(totalAudioLen.toInt()), 0, 4)
+    outputStream.writeBytes("WAVE")
+    outputStream.writeBytes("fmt ")
+    outputStream.write(intToByteArray(16), 0, 4) // Sub-chunk 1 size (16 for PCM)
+    outputStream.write(shortToByteArray(1), 0, 2) // Audio format (1 for PCM)
+    outputStream.write(shortToByteArray(channelCount.toShort()), 0, 2) // Number of channels
+    outputStream.write(intToByteArray(sampleRate), 0, 4) // Sample rate
+    outputStream.write(intToByteArray(byteRate), 0, 4) // Byte rate
+    outputStream.write(shortToByteArray((channelCount * audioFormat / 8).toShort()), 0, 2) // Block align
+    outputStream.write(shortToByteArray(audioFormat.toShort()), 0, 2) // Bits per sample
+    outputStream.writeBytes("data")
+    outputStream.write(intToByteArray(audioDataSize.toInt()), 0, 4) // Sub-chunk 2 size
+}
+           
