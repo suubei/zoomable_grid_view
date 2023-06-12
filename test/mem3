@@ -302,14 +302,14 @@ fun extractAudioFromMp4(inputFilePath: String, outputFilePath: String) {
 
         // 读取并写入音频数据
         val bufferSize = 2 * sampleRate * channelCount
-        val buffer = ByteArray(bufferSize)
+        val buffer = ByteBuffer.allocate(bufferSize)
         while (true) {
             val readSize = extractor.readSampleData(buffer, 0)
             if (readSize < 0) {
                 break
             }
 
-            outputStream.write(buffer, 0, readSize)
+            outputStream.write(buffer.array(), 0, readSize)
             extractor.advance()
         }
 
@@ -330,3 +330,4 @@ fun main() {
 
     extractAudioFromMp4(inputFilePath, outputFilePath)
 }
+
