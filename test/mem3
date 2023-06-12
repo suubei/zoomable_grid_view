@@ -1,141 +1,127 @@
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.AudioTrack
-import android.media.AudioAttributes
-import android.media.AudioManager
-import java.io.*
+import android.media.MediaMuxer
+import android.os.Environment
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
 
-class AudioConverter {
+fun convertAacToWav(inputFilePath: String, outputFilePath: String) {
+    val mediaExtractor = MediaExtractor()
+    mediaExtractor.setDataSource(inputFilePath)
 
-  class AudioConverter {
-    // ...
+    val audioTrackIndex = findAudioTrackIndex(mediaExtractor)
 
-    fun convertMP4ALATMtoWAV(mp4aFilePath: String, wavFilePath: String) {
-        val mp4aFile = File(mp4aFilePath)
-        val wavFile = File(wavFilePath)
+    val inputFormat = mediaExtractor.getTrackFormat(audioTrackIndex)
+    val outputFormat = createWavFormat(inputFormat)
 
-        try {
-            val mediaExtractor = MediaExtractor()
-            mediaExtractor.setDataSource(mp4aFile.path)
+    val mediaCodec = MediaCodec.createDecoderByType(inputFormat.getString(MediaFormat.KEY_MIME))
+    mediaCodec.configure(inputFormat, null, null, 0)
+    mediaCodec.start()
 
-            val audioTrackIndex = selectAudioTrack(mediaExtractor)
+    val outputFile = File(Environment.getExternalStorageDirectory(), outputFilePath)
+    val outputStream = FileOutputStream(outputFile)
+    val mediaMuxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
 
-            mediaExtractor.selectTrack(audioTrackIndex)
-            val mediaFormat = mediaExtractor.getTrackFormat(audioTrackIndex)
+    mediaMuxer.addTrack(outputFormat)
+    mediaMuxer.start()
 
-            val mp4aMimeType = mediaFormat.getString(MediaFormat.KEY_MIME)
-            val channelCount = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            val sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+    val inputBuffers = mediaCodec.inputBuffers
+    val outputBuffers = mediaCodec.outputBuffers
+    val bufferInfo = MediaCodec.BufferInfo()
 
-            val mediaCodec = MediaCodec.createDecoderByType(mp4aMimeType)
-            mediaCodec.configure(mediaFormat, null, null, 0)
-            mediaCodec.start()
+    var isEOS = false
+    var presentationTimeUs: Long = 0
 
-            val bufferSize = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_STEREO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-            val audioData = ByteArray(bufferSize)
-
-            val outputStream = DataOutputStream(FileOutputStream(wavFile))
-
-            var bytesRead = 0
-            var totalBytesWritten = 0L
-
-            // Read and convert the audio data
-            while (true) {
-                val inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)
-                if (inputBufferIndex >= 0) {
-                    val inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex)!!
-                    bytesRead = mediaExtractor.readSampleData(inputBuffer, 0)
-
-                    if (bytesRead >= 0) {
-                        val presentationTimeUs = mediaExtractor.sampleTime
-                        mediaCodec.queueInputBuffer(
-                            inputBufferIndex,
-                            0,
-                            bytesRead,
-                            presentationTimeUs,
-                            if (bytesRead < 0) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0
-                        )
-                        mediaExtractor.advance()
-                    } else {
-                        mediaCodec.queueInputBuffer(
-                            inputBufferIndex,
-                            0,
-                            0,
-                            0,
-                            MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                        )
-                    }
-                }
-
-                val bufferInfo = MediaCodec.BufferInfo()
-                val outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 10000)
-                if (outputBufferIndex >= 0) {
-                    val outputBuffer = mediaCodec.getOutputBuffer(outputBufferIndex)!!
-
-                    // Write the audio data to the WAV file
-                    val audioDataSize = bufferInfo.size
-                    outputStream.write(outputBuffer, bufferInfo.offset, audioDataSize)
-
-                    totalBytesWritten += audioDataSize
-
-                    mediaCodec.releaseOutputBuffer(outputBufferIndex, false)
-
-                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                        break
-                    }
-                }
+    while (!isEOS) {
+        val inputIndex = mediaCodec.dequeueInputBuffer(10000)
+        if (inputIndex >= 0) {
+            val inputBuffer = inputBuffers[inputIndex]
+            val sampleSize = mediaExtractor.readSampleData(inputBuffer, 0)
+            if (sampleSize < 0) {
+                mediaCodec.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                isEOS = true
+            } else {
+                presentationTimeUs = mediaExtractor.sampleTime
+                mediaCodec.queueInputBuffer(inputIndex, 0, sampleSize, presentationTimeUs, 0)
+                mediaExtractor.advance()
             }
+        }
 
-            // Write the WAV header with the correct audio data size
-            writeWavHeader(outputStream, totalBytesWritten, sampleRate, channelCount, AudioFormat.ENCODING_PCM_16BIT)
+        val outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 10000)
+        if (outputIndex >= 0) {
+            val outputBuffer = outputBuffers[outputIndex]
+            val chunkSize = bufferInfo.size + 44
+            val wavBuffer = ByteBuffer.allocate(chunkSize)
 
-            mediaCodec.stop()
-            mediaCodec.release()
-            mediaExtractor.release()
-            outputStream.close()
-        } catch (e: IOException) {
-            e.printStackTrace()
+            writeWavHeader(wavBuffer, bufferInfo.size.toLong(), outputFormat)
+
+            outputBuffer.position(bufferInfo.offset)
+            outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+            wavBuffer.position(44)
+
+            wavBuffer.put(outputBuffer)
+
+            mediaMuxer.writeSampleData(0, wavBuffer, bufferInfo)
+
+            mediaCodec.releaseOutputBuffer(outputIndex, false)
+        }
+
+        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+            isEOS = true
         }
     }
 
-    // ...
+    mediaCodec.stop()
+    mediaCodec.release()
+
+    mediaExtractor.release()
+    mediaMuxer.stop()
+    mediaMuxer.release()
+
+    outputStream.close()
 }
 
-           
-           
-           
-           
-           
-private fun writeWavHeader(
-    outputStream: DataOutputStream,
-    audioDataSize: Long,
-    sampleRate: Int,
-    channelCount: Int,
-    audioFormat: Int
-) {
-    val totalAudioLen = audioDataSize + 36
-    val byteRate = sampleRate * channelCount * (audioFormat / 8)
-
-    // Write WAV header
-    outputStream.writeBytes("RIFF")
-    outputStream.write(intToByteArray(totalAudioLen.toInt()), 0, 4)
-    outputStream.writeBytes("WAVE")
-    outputStream.writeBytes("fmt ")
-    outputStream.write(intToByteArray(16), 0, 4) // Sub-chunk 1 size (16 for PCM)
-    outputStream.write(shortToByteArray(1), 0, 2) // Audio format (1 for PCM)
-    outputStream.write(shortToByteArray(channelCount.toShort()), 0, 2) // Number of channels
-    outputStream.write(intToByteArray(sampleRate), 0, 4) // Sample rate
-    outputStream.write(intToByteArray(byteRate), 0, 4) // Byte rate
-    outputStream.write(shortToByteArray((channelCount * audioFormat / 8).toShort()), 0, 2) // Block align
-    outputStream.write(shortToByteArray(audioFormat.toShort()), 0, 2) // Bits per sample
-    outputStream.writeBytes("data")
-    outputStream.write(intToByteArray(audioDataSize.toInt()), 0, 4) // Sub-chunk 2 size
+private fun findAudioTrackIndex(mediaExtractor: MediaExtractor): Int {
+    val numTracks = mediaExtractor.trackCount
+    for (i in 0 until numTracks) {
+        val format = mediaExtractor.getTrackFormat(i)
+        val mime = format.getString(MediaFormat.KEY_MIME)
+        if (mime?.startsWith("audio/") == true) {
+            return i
+        }
+    }
+    return -1
 }
-           
+
+private fun createWavFormat(inputFormat: MediaFormat): MediaFormat {
+    val outputFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_RAW, inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE), inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT))
+    outputFormat.setInteger(MediaFormat.KEY_BIT_RATE, 16)
+    outputFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, 2)
+    return outputFormat
+}
+
+private fun writeWavHeader(buffer: ByteBuffer, audioDataSize: Long, format: MediaFormat) {
+    buffer.put("RIFF".toByteArray()) // ChunkID
+    buffer.putInt((audioDataSize + 36).toInt()) // ChunkSize
+    buffer.put("WAVE".toByteArray()) // Format
+
+    buffer.put("fmt ".toByteArray()) // Subchunk1ID
+    buffer.putInt(16) // Subchunk1Size
+    buffer.putShort(1) // AudioFormat (PCM = 1)
+    buffer.putShort(format.getInteger(MediaFormat.KEY_CHANNEL_COUNT).toShort()) // NumChannels
+    buffer.putInt(format.getInteger(MediaFormat.KEY_SAMPLE_RATE)) // SampleRate
+    buffer.putInt(format.getInteger(MediaFormat.KEY_SAMPLE_RATE) * format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) * 2) // ByteRate
+    buffer.putShort((format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) * 2).toShort()) // BlockAlign
+    buffer.putShort(16) // BitsPerSample
+
+    buffer.put("data".toByteArray()) // Subchunk2ID
+    buffer.putInt(audioDataSize.toInt()) // Subchunk2Size
+}
+
+fun main() {
+    val inputFilePath = "path/to/input.aac"
+    val outputFilePath = "path/to/output.wav"
+    convertAacToWav(inputFilePath, outputFilePath)
+}
