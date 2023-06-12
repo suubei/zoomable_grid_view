@@ -10,6 +10,9 @@ import java.io.*
 
 class AudioConverter {
 
+  class AudioConverter {
+    // ...
+
     fun convertMP4ALATMtoWAV(mp4aFilePath: String, wavFilePath: String) {
         val mp4aFile = File(mp4aFilePath)
         val wavFile = File(wavFilePath)
@@ -31,23 +34,27 @@ class AudioConverter {
             mediaCodec.configure(mediaFormat, null, null, 0)
             mediaCodec.start()
 
-            val bufferSize = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+            val bufferSize = AudioRecord.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_OUT_STEREO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
             val audioData = ByteArray(bufferSize)
 
             val outputStream = DataOutputStream(FileOutputStream(wavFile))
-            writeWavHeader(outputStream, 0, sampleRate, channelCount, AudioFormat.ENCODING_PCM_16BIT)
 
-            var presentationTimeUs = 0L
             var bytesRead = 0
+            var totalBytesWritten = 0L
 
-            while (bytesRead != -1) {
-                val bufferInfo = MediaCodec.BufferInfo()
+            // Read and convert the audio data
+            while (true) {
                 val inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)
                 if (inputBufferIndex >= 0) {
                     val inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex)!!
                     bytesRead = mediaExtractor.readSampleData(inputBuffer, 0)
+
                     if (bytesRead >= 0) {
-                        presentationTimeUs = mediaExtractor.sampleTime
+                        val presentationTimeUs = mediaExtractor.sampleTime
                         mediaCodec.queueInputBuffer(
                             inputBufferIndex,
                             0,
@@ -67,14 +74,16 @@ class AudioConverter {
                     }
                 }
 
+                val bufferInfo = MediaCodec.BufferInfo()
                 val outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 10000)
                 if (outputBufferIndex >= 0) {
                     val outputBuffer = mediaCodec.getOutputBuffer(outputBufferIndex)!!
-                    outputBuffer.get(audioData)
-                    outputBuffer.position(bufferInfo.offset)
-                    outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
 
-                    outputStream.write(audioData, 0, bufferInfo.size)
+                    // Write the audio data to the WAV file
+                    val audioDataSize = bufferInfo.size
+                    outputStream.write(outputBuffer, bufferInfo.offset, audioDataSize)
+
+                    totalBytesWritten += audioDataSize
 
                     mediaCodec.releaseOutputBuffer(outputBufferIndex, false)
 
@@ -84,19 +93,21 @@ class AudioConverter {
                 }
             }
 
+            // Write the WAV header with the correct audio data size
+            writeWavHeader(outputStream, totalBytesWritten, sampleRate, channelCount, AudioFormat.ENCODING_PCM_16BIT)
+
             mediaCodec.stop()
             mediaCodec.release()
             mediaExtractor.release()
             outputStream.close()
         } catch (e: IOException) {
-           
-           
-           
-           
-           
-           
-           
-           
+            e.printStackTrace()
+        }
+    }
+
+    // ...
+}
+
            
            
            
