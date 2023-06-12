@@ -94,4 +94,88 @@ class AudioConverter {
     }
 
     // ...
+    
+    
+    
+    
+    
+    
+    
+    fun writeWavHeader(
+    outputStream: DataOutputStream,
+    audioDataSizePlaceholder: Long,
+    sampleRate: Int,
+    channelCount: Int,
+    audioEncoding: Int
+) {
+    val totalDataSize = audioDataSizePlaceholder + 36
+    val byteRate = sampleRate * channelCount * (audioEncoding / 8)
+
+    outputStream.apply {
+        // ChunkID (RIFF header)
+        writeBytes("RIFF")
+
+        // ChunkSize (RIFF header)
+        writeInt(totalDataSize.toInt())
+
+        // Format (RIFF header)
+        writeBytes("WAVE")
+
+        // Subchunk1ID (fmt subchunk)
+        writeBytes("fmt ")
+
+        // Subchunk1Size (fmt subchunk)
+        writeInt(16)
+
+        // AudioFormat (fmt subchunk)
+        writeShort(1)  // PCM = 1
+
+        // NumChannels (fmt subchunk)
+        writeShort(channelCount.toShort())
+
+        // SampleRate (fmt subchunk)
+        writeInt(sampleRate)
+
+        // ByteRate (fmt subchunk)
+        writeInt(byteRate)
+
+        // BlockAlign (fmt subchunk)
+        writeShort((channelCount * (audioEncoding / 8)).toShort())
+
+        // BitsPerSample (fmt subchunk)
+        writeShort(audioEncoding.toShort())
+
+        // Subchunk2ID (data subchunk)
+        writeBytes("data")
+
+        // Subchunk2Size (data subchunk) - Placeholder value
+        writeInt(audioDataSizePlaceholder.toInt())
+    }
+}
+
+
+
+val outputStream = DataOutputStream(FileOutputStream(wavFile))
+
+// Placeholder for audio data size in the WAV header
+val audioDataSizePlaceholder: Long = 0
+
+// Write the WAV header with the placeholder audio data size
+writeWavHeader(outputStream, audioDataSizePlaceholder, sampleRate, channelCount, audioEncoding)
+
+// Write the audio data to the output file
+outputStream.write(audioData)
+
+// Get the actual audio data size
+val audioDataSize = outputStream.size() - 44
+
+// Move back to the position where the audio data size should be updated in the WAV header
+outputStream.seek(40)
+outputStream.writeInt(audioDataSize.toInt())
+
+// Close the output stream
+outputStream.close()
+
+
+
 }
