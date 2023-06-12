@@ -179,3 +179,27 @@ outputStream.close()
 
 
 }
+
+
+import java.io.*
+
+fun convertToWav(inputFilePath: String, outputFilePath: String) {
+    val audioDataFile = File(inputFilePath)
+    val audioData = audioDataFile.readBytes()
+
+    val audioFormat = AudioFormat.Encoding.PCM_SIGNED
+    val sampleRate = 44100f // Sample rate in Hz
+    val sampleSizeInBits = 16 // Bits per sample
+    val channels = 1 // Mono channel
+    val frameSize = (sampleSizeInBits / 8) * channels
+    val frameRate = sampleRate.toInt()
+    val bigEndian = false
+
+    val audioFormat = AudioFormat(audioFormat, sampleRate, sampleSizeInBits, channels, frameSize, frameRate, bigEndian)
+
+    val audioInputStream = AudioInputStream(ByteArrayInputStream(audioData), audioFormat, audioData.size.toLong())
+
+    val wavFile = File(outputFilePath)
+    AudioSystem.write(audioInputStream, AudioFileFormat.Type.WAVE, wavFile)
+}
+
