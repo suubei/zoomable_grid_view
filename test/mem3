@@ -259,3 +259,74 @@ fun main() {
 
     convertToWav(inputFilePath, outputFilePath, sampleRate, channels, bitsPerSample)
 }
+
+
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import java.io.*
+
+fun extractAudioFromMp4(inputFilePath: String, outputFilePath: String) {
+    try {
+        // 创建 MediaExtractor 对象，并设置输入文件路径
+        val extractor = MediaExtractor()
+        extractor.setDataSource(inputFilePath)
+
+        // 查找音频轨道
+        var audioTrackIndex = -1
+        for (i in 0 until extractor.trackCount) {
+            val format = extractor.getTrackFormat(i)
+            val mime = format.getString(MediaFormat.KEY_MIME)
+            if (mime?.startsWith("audio/") == true) {
+                audioTrackIndex = i
+                break
+            }
+        }
+
+        if (audioTrackIndex == -1) {
+            println("未找到音频轨道")
+            return
+        }
+
+        // 选择音频轨道
+        extractor.selectTrack(audioTrackIndex)
+
+        // 获取音频格式
+        val format = extractor.getTrackFormat(audioTrackIndex)
+        val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+        val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+        val bitsPerSample = 16 // 位深度为 16
+
+        // 创建输出文件
+        val outputFile = File(outputFilePath)
+        val outputStream = DataOutputStream(FileOutputStream(outputFile))
+
+        // 读取并写入音频数据
+        val bufferSize = 2 * sampleRate * channelCount
+        val buffer = ByteArray(bufferSize)
+        while (true) {
+            val readSize = extractor.readSampleData(buffer, 0)
+            if (readSize < 0) {
+                break
+            }
+
+            outputStream.write(buffer, 0, readSize)
+            extractor.advance()
+        }
+
+        // 关闭输入输出流
+        extractor.release()
+        outputStream.close()
+
+        println("音频数据已保存为 PCM 格式数据：$outputFilePath")
+    } catch (e: IOException) {
+        e.printStackTrace()
+    }
+}
+
+// 使用示例
+fun main() {
+    val inputFilePath = "path/to/inputfile.mp4"
+    val outputFilePath = "path/to/outputfile.pcm"
+
+    extractAudioFromMp4(inputFilePath, outputFilePath)
+}
