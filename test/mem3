@@ -1,0 +1,92 @@
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.AudioTrack
+import android.media.AudioAttributes
+import android.media.AudioManager
+import java.io.*
+
+class AudioConverter {
+
+    fun convertMP4ALATMtoWAV(mp4aFilePath: String, wavFilePath: String) {
+        val mp4aFile = File(mp4aFilePath)
+        val wavFile = File(wavFilePath)
+
+        try {
+            val mediaExtractor = MediaExtractor()
+            mediaExtractor.setDataSource(mp4aFile.path)
+
+            val audioTrackIndex = selectAudioTrack(mediaExtractor)
+
+            mediaExtractor.selectTrack(audioTrackIndex)
+            val mediaFormat = mediaExtractor.getTrackFormat(audioTrackIndex)
+
+            val mp4aMimeType = mediaFormat.getString(MediaFormat.KEY_MIME)
+            val channelCount = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            val sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+
+            val mediaCodec = MediaCodec.createDecoderByType(mp4aMimeType)
+            mediaCodec.configure(mediaFormat, null, null, 0)
+            mediaCodec.start()
+
+            val bufferSize = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+            val audioData = ByteArray(bufferSize)
+
+            val outputStream = DataOutputStream(FileOutputStream(wavFile))
+            writeWavHeader(outputStream, 0, sampleRate, channelCount, AudioFormat.ENCODING_PCM_16BIT)
+
+            var presentationTimeUs = 0L
+            var bytesRead = 0
+
+            while (bytesRead != -1) {
+                val bufferInfo = MediaCodec.BufferInfo()
+                val inputBufferIndex = mediaCodec.dequeueInputBuffer(10000)
+                if (inputBufferIndex >= 0) {
+                    val inputBuffer = mediaCodec.getInputBuffer(inputBufferIndex)!!
+                    bytesRead = mediaExtractor.readSampleData(inputBuffer, 0)
+                    if (bytesRead >= 0) {
+                        presentationTimeUs = mediaExtractor.sampleTime
+                        mediaCodec.queueInputBuffer(
+                            inputBufferIndex,
+                            0,
+                            bytesRead,
+                            presentationTimeUs,
+                            if (bytesRead < 0) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0
+                        )
+                        mediaExtractor.advance()
+                    } else {
+                        mediaCodec.queueInputBuffer(
+                            inputBufferIndex,
+                            0,
+                            0,
+                            0,
+                            MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                        )
+                    }
+                }
+
+                val outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 10000)
+                if (outputBufferIndex >= 0) {
+                    val outputBuffer = mediaCodec.getOutputBuffer(outputBufferIndex)!!
+                    outputBuffer.get(audioData)
+                    outputBuffer.position(bufferInfo.offset)
+                    outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+
+                    outputStream.write(audioData, 0, bufferInfo.size)
+
+                    mediaCodec.releaseOutputBuffer(outputBufferIndex, false)
+
+                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                        break
+                    }
+                }
+            }
+
+            mediaCodec.stop()
+            mediaCodec.release()
+            mediaExtractor.release()
+            outputStream.close()
+        } catch (e: IOException) {
+           
