@@ -1,7 +1,7 @@
 import AVFoundation
 
-func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool {
-    let asset = AVAsset(url: URL(fileURLWithPath: inputFilePath))
+func extractAudioFromMP4(videoFilePath: String, wavFilePath: String) -> Bool {
+    let asset = AVAsset(url: URL(fileURLWithPath: videoFilePath))
     
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
         print("未找到音频轨道")
@@ -16,7 +16,7 @@ func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool 
         AVLinearPCMIsNonInterleaved: false
     ]
     
-    let outputURL = URL(fileURLWithPath: outputFilePath)
+    let outputURL = URL(fileURLWithPath: wavFilePath)
     
     do {
         let assetReader = try AVAssetReader(asset: asset)
@@ -26,23 +26,46 @@ func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool 
         
         assetReader.startReading()
         
-        let fileOutput = FileHandle(forWritingAtPath: outputFilePath)
+        let fileOutput = FileHandle(forWritingAtPath: wavFilePath)
         fileOutput?.truncateFile(atOffset: 0)
         
-        let audioFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: audioTrack.nominalFrameRate, channels: audioTrack.formatDescriptions.first.map { $0.channelCount } ?? 0, interleaved: false)
+        guard let audioFormat = audioTrack.formatDescriptions.first as? CMAudioFormatDescription else {
+            print("无法获取音频格式描述")
+            return false
+        }
         
-        let audioFile = try AVAudioFile(forWriting: outputURL, settings: audioFormat!.settings, commonFormat: .pcmFormatInt16, interleaved: false)
+        let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(audioFormat)?.pointee
+        
+        let channels = asbd?.mChannelsPerFrame ?? 0
+        let sampleRate = asbd?.mSampleRate ?? 0
+        
+        let audioFormatSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: channels,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsNonInterleaved: false,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+        
+        let audioFormat = AVAudioFormat(settings: audioFormatSettings)
+        let audioFile = try AVAudioFile(forWriting: outputURL, settings: audioFormat!.settings)
         
         while let sampleBuffer = trackOutput.copyNextSampleBuffer() {
             let presentationTimeStamp = CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer)
-            let audioBuffer = CMSampleBufferGetDataBuffer(sampleBuffer)
+            
+            guard let audioBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
+                print("无法获取 PCM 缓冲区")
+                return false
+            }
             
             var blockBuffer: CMBlockBuffer?
             var audioBufferList = AudioBufferList(
                 mNumberBuffers: 1,
                 mBuffers: AudioBuffer(
-                    mNumberChannels: UInt32(audioTrack.formatDescriptions.first.map { $0.channelCount } ?? 0),
-                    mDataByteSize: CMBlockBufferGetDataLength(audioBuffer!),
+                    mNumberChannels: UInt32(channels),
+                    mDataByteSize: CMBlockBufferGetDataLength(audioBuffer),
                     mData: nil
                 )
             )
@@ -65,8 +88,9 @@ func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool 
             
             let audioBufferData = Data(bytes: audioBufferList.mBuffers.mData!, count: Int(audioBufferList.mBuffers.mDataByteSize))
             
-            let audioBufferPCM = AVAudioPCMBuffer(pcmFormat: audioFormat!, frameCapacity: AVAudioFrameCount(audioTrack.formatDescriptions.first.map { $0.channelCount } ?? 0))
-            audioBufferPCM?.frameLength = AVAudioFrameCount(audioBufferData.count) / audioFormat!.streamDescription.pointee.mBytesPerFrame
+            let audioBufferPCM = AVAudioPCMBuffer(pcmFormat: audioFormat!, frameCapacity: UInt32(audioBufferData.count) / audioFormat!.streamDescription.pointee.mBytesPerFrame)
+            
+            audioBufferPCM?.frameLength = audioBufferPCM!.frameCapacity
             audioBufferData.copyBytes(to: UnsafeMutableBufferPointer(start: audioBufferPCM!.int16ChannelData![0], count: audioBufferData.count / MemoryLayout<Int16>.size))
             
             try audioFile.write(from: audioBufferPCM!)
@@ -77,7 +101,7 @@ func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool 
         assetReader.cancelReading()
         fileOutput?.closeFile()
         
-        print("音频已解码并保存为 WAV 文件：\(outputFilePath)")
+        print("音频已解码并保存为 WAV 文件：\(wavFilePath)")
         return true
     } catch {
         print("音频解码失败：\(error)")
@@ -86,10 +110,10 @@ func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool 
 }
 
 // 使用示例
-let inputFilePath = "path/to/inputfile.mp4"
-let outputFilePath = "path/to/outputfile.wav"
+let videoFilePath = "path/to/inputfile.mp4"
+let wavFilePath = "path/to/outputfile.wav"
 
-let extractionSuccess = extractAudioFromMP4(inputFilePath: inputFilePath, outputFilePath: outputFilePath)
+let extractionSuccess = extractAudioFromMP4(videoFilePath: videoFilePath, wavFilePath: wavFilePath)
 if extractionSuccess {
     print("音频提取和解码成功")
 } else {
