@@ -1,22 +1,37 @@
 import AVFoundation
 
-func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) {
+func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool {
     let asset = AVAsset(url: URL(fileURLWithPath: inputFilePath))
     let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough)
     exportSession?.outputFileType = .wav
     exportSession?.outputURL = URL(fileURLWithPath: outputFilePath)
     
+    let semaphore = DispatchSemaphore(value: 0)
+    var success = false
+    
     exportSession?.exportAsynchronously(completionHandler: {
         if exportSession?.status == .completed {
+            success = true
             print("音频已解码并保存为 WAV 文件：\(outputFilePath)")
         } else if exportSession?.status == .failed {
             print("音频解码失败")
         }
+        
+        semaphore.signal()
     })
+    
+    _ = semaphore.wait(timeout: .distantFuture)
+    
+    return success
 }
 
 // 使用示例
 let inputFilePath = "path/to/inputfile.mp4"
 let outputFilePath = "path/to/outputfile.wav"
 
-extractAudioFromMP4(inputFilePath: inputFilePath, outputFilePath: outputFilePath)
+let extractionSuccess = extractAudioFromMP4(inputFilePath: inputFilePath, outputFilePath: outputFilePath)
+if extractionSuccess {
+    print("音频提取和解码成功")
+} else {
+    print("音频提取和解码失败")
+}
