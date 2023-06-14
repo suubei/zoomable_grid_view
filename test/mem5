@@ -1,53 +1,60 @@
 import AVFoundation
 
-func convertAACtoLPCM(aacURL: URL, lpcmURL: URL, completion: @escaping (Bool) -> Void) {
-    let inputFile: AVAudioFile
-    do {
-        inputFile = try AVAudioFile(forReading: aacURL)
-    } catch {
-        completion(false)
-        return
-    }
+func convertM4AToWAV(inputURL: URL, outputURL: URL) {
+    let asset = AVURLAsset(url: inputURL)
+    let audioAsset = asset.tracks(withMediaType: AVMediaType.audio).first!
 
-    let inputFormat = inputFile.fileFormat
-    let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: inputFormat.sampleRate, channels: inputFormat.channelCount, interleaved: false)!
+    let outputSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsNonInterleaved: false
+    ]
 
-    guard let audioConverter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
-        completion(false)
-        return
-    }
+    let outputFileType = AVFileType.wav
 
-    do {
-        let outputFile = try AVAudioFile(forWriting: lpcmURL, settings: outputFormat.settings, commonFormat: outputFormat.commonFormat, interleaved: outputFormat.isInterleaved)
+    let audioConverter = try! AVAudioConverter(from: audioAsset.formatDescription, to: outputSettings)
+    let convertedFile = try! AVAudioFile(forWriting: outputURL, settings: audioConverter.outputFormat)
 
-        let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(inputFile.length))!
-        try inputFile.read(into: inputBuffer)
+    let packetSize = 4096
+    let buffer = AVAudioPCMBuffer(pcmFormat: audioConverter.outputFormat, frameCapacity: AVAudioFrameCount(packetSize))!
 
-        let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(inputBuffer.frameCapacity))!
+    var totalFrames: AVAudioFramePosition = 0
+    var error: NSError? = nil
 
-        var error: NSError?
+    while true {
+        let inputStatus = audioConverter.convert(to: buffer, error: &error)
 
-        audioConverter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
-            outStatus.pointee = .haveData
-            return inputBuffer
+        if inputStatus == .endOfStream {
+            break
         }
 
-        try outputFile.write(from: outputBuffer)
+        if inputStatus == .haveData {
+            let outputStatus = convertedFile.write(from: buffer)
 
-        completion(true)
-    } catch {
-        completion(false)
+            if outputStatus != .success {
+                print("Error writing buffer to file: \(outputStatus)")
+                break
+            }
+
+            totalFrames += buffer.frameLength
+        }
+
+        if inputStatus != .haveData {
+            print("Error converting input: \(inputStatus)")
+            break
+        }
     }
+
+    convertedFile.framePosition = 0
+    convertedFile.length = totalFrames
+
+    print("Conversion complete")
 }
 
 // Usage example
-let aacURL = URL(fileURLWithPath: "/path/to/input.aac")
-let lpcmURL = URL(fileURLWithPath: "/path/to/output.wav")
+let inputURL = URL(fileURLWithPath: "input.m4a")
+let outputURL = URL(fileURLWithPath: "output.wav")
 
-convertAACtoLPCM(aacURL: aacURL, lpcmURL: lpcmURL) { success in
-    if success {
-        print("Conversion successful!")
-    } else {
-        print("Conversion failed.")
-    }
-}
+convertM4AToWAV(inputURL: inputURL, outputURL: outputURL)
