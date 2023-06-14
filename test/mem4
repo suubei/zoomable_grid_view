@@ -10,6 +10,9 @@ import AVFoundation
 import Foundation
 import AVFoundation
 
+import Foundation
+import AVFoundation
+
 func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     // Create AVAsset object
     let asset = AVAsset(url: URL(fileURLWithPath: videoFilePath))
@@ -59,13 +62,19 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     writeWavHeader(to: wavFile, format: formatDescription)
     
     // Read and write audio data
-    let buffer = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
-    
     while assetReader.status == .reading {
-        let sampleBuffer = audioOutput.copyNextSampleBuffer()
+        guard let sampleBuffer = audioOutput.copyNextSampleBuffer() else {
+            continue
+        }
         
-        if let buffer = sampleBuffer?.audioBufferList.pointee.mBuffers {
-            let data = Data(bytes: buffer.mData!, count: Int(buffer.mDataByteSize))
+        guard let format = formatDescription.audioFormatList?.pointee else {
+            print("Failed to get audio format information")
+            return false
+        }
+        
+        for bufferIndex in 0..<sampleBuffer.numSamples {
+            let audioBuffer = sampleBuffer.audioBufferList[bufferIndex]
+            let data = Data(bytes: audioBuffer.mData!, count: Int(audioBuffer.mDataByteSize))
             
             _ = data.withUnsafeBytes { (ptr: UnsafePointer<Int8>) -> Int in
                 let pointer = UnsafeMutablePointer<Int8>(mutating: ptr)
@@ -78,7 +87,6 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     }
     
     // Release resources
-    buffer.deallocate()
     wavFile.close()
     
     if assetReader.status == .completed {
@@ -89,7 +97,6 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
         return false
     }
 }
-
 
 
 // 写入 WAV 文件头
