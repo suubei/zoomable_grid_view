@@ -1,12 +1,18 @@
 import AVFoundation
 
-func decodeAACtoPCM(inputURL: URL, outputURL: URL) {
+func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
+    let inputURL = URL(fileURLWithPath: inputPath)
+    let outputURL = URL(fileURLWithPath: outputPath)
+    
     let inputFile = try! AVAudioFile(forReading: inputURL)
     let outputFile = try! AVAudioFile(forWriting: outputURL, settings: inputFile.fileFormat.settings)
 
     // Set up the input and output formats
     let inputFormat = inputFile.fileFormat
-    let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: inputFormat.sampleRate, channels: 1, interleaved: true)
+    guard let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: inputFormat.sampleRate, channels: 1, interleaved: true) else {
+        print("Failed to create output format")
+        return false
+    }
 
     // Create the audio converter
     let converter = AVAudioConverter(from: inputFormat, to: outputFormat)!
@@ -29,10 +35,16 @@ func decodeAACtoPCM(inputURL: URL, outputURL: URL) {
 
     // Write the output buffer to the output file
     try! outputFile.write(from: outputBuffer)
+
+    return true
 }
 
 // Usage example
-let inputURL = URL(fileURLWithPath: "path/to/inputfile.aac")
-let outputURL = URL(fileURLWithPath: "path/to/outputfile.pcm")
+let inputPath = "path/to/inputfile.aac"
+let outputPath = "path/to/outputfile.pcm"
 
-decodeAACtoPCM(inputURL: inputURL, outputURL: outputURL)
+if decodeAACtoPCM(inputPath: inputPath, outputPath: outputPath) {
+    print("AAC to PCM conversion succeeded")
+} else {
+    print("AAC to PCM conversion failed")
+}
