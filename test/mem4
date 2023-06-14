@@ -1,123 +1,24 @@
 import AVFoundation
 
-import AVFoundation
-
-func extractAudioFromVideo(videoPath: String, outputPath: String) -> Bool {
-    let videoURL = URL(fileURLWithPath: videoPath)
-    let outputURL = URL(fileURLWithPath: outputPath)
+func extractAudioFromVideo(inputPath: String, outputPath: String) {
+    let asset = AVAsset(url: URL(fileURLWithPath: inputPath))
+    let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough)
+    exportSession?.outputFileType = AVFileType.wav
+    exportSession?.outputURL = URL(fileURLWithPath: outputPath)
     
-    let asset = AVAsset(url: videoURL)
-    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-        print("视频中没有音频轨道")
-        return false
-    }
-    
-    let assetReader: AVAssetReader
-    do {
-        assetReader = try AVAssetReader(asset: asset)
-    } catch {
-        print("创建AVAssetReader失败: \(error.localizedDescription)")
-        return false
-    }
-    
-    let outputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsNonInterleaved: false,
-        AVSampleRateKey: audioTrack.nominalFrameRate
-    ]
-    
-    let trackOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
-    assetReader.add(trackOutput)
-    
-    assetReader.startReading()
-    
-    let sampleRate = audioTrack.nominalFrameRate
-    
-    let pcmFile = outputURL.appendingPathExtension("pcm")
-    
-    let pcmData = NSMutableData()
-    
-    while let sampleBuffer = trackOutput.copyNextSampleBuffer() {
-        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
-            continue
+    exportSession?.exportAsynchronously(completionHandler: {
+        if exportSession?.status == .completed {
+            print("Audio extraction completed.")
+        } else if exportSession?.status == .failed {
+            if let error = exportSession?.error {
+                print("Audio extraction failed with error: \(error.localizedDescription)")
+            }
         }
-        
-        let length = CMBlockBufferGetDataLength(blockBuffer)
-        var buffer = [UInt8](repeating: 0, count: length)
-        
-        CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0, dataLength: length, destination: &buffer)
-        
-        pcmData.append(&buffer, length: length)
-        
-        CMSampleBufferInvalidate(sampleBuffer)
-    }
-    
-    assetReader.cancelReading()
-    
-    do {
-        try pcmData.write(to: pcmFile)
-        
-        let channels = audioTrack.channelLayout?.channelCount ?? 0
-        
-        let pcmToWavConverter = PCMToWavConverter(pcmFileURL: pcmFile, wavFileURL: outputURL, sampleRate: sampleRate, channels: channels)
-        try pcmToWavConverter.convert()
-        
-        try FileManager.default.removeItem(at: pcmFile)
-        
-        print("音频文件提取并保存成功")
-        return true
-    } catch {
-        print("音频文件提取或保存失败: \(error.localizedDescription)")
-        return false
-    }
-}
-
-// PCM to WAV converter class (unchanged)
-
-// 使用示例
-let videoPath = "/path/to/video.mp4"
-let outputPath = "/path/to/output/audio.wav"
-let success = extractAudioFromVideo(videoPath: videoPath, outputPath: outputPath)
-if success {
-    print("音频文件提取和保存成功")
-} else {
-    print("音频文件提取或保存失败")
-}
-
-// PCM to WAV converter class
-class PCMToWavConverter {
-    private let pcmFileURL: URL
-    private let wavFileURL: URL
-    private let sampleRate: Float64
-    private let channels: UInt32
-    
-    init(pcmFileURL: URL, wavFileURL: URL, sampleRate: Float64, channels: UInt32) {
-        self.pcmFileURL = pcmFileURL
-        self.wavFileURL = wavFileURL
-        self.sampleRate = sampleRate
-        self.channels = channels
-    }
-    
-    func convert() throws {
-        let pcmFile = try AVAudioFile(forReading: pcmFileURL)
-        let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: sampleRate, channels: channels, interleaved: false)
-        
-        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: pcmFile.processingFormat, frameCapacity: AVAudioFrameCount(pcmFile.length)) else {
-            throw NSError(domain: "PCM buffer creation failed", code: 0, userInfo: nil)
-        }
-        
-        try pcmFile.read(into: pcmBuffer)
-        
-        let wavFile = try AVAudioFile(forWriting: wavFileURL, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: false)
-        
-        try wavFile.write(from: pcmBuffer)
-    }
+    })
 }
 
 // 使用示例
-let videoPath = "/path/to/video.mp4"
-let outputPath = "/path/to/output/audio"
-extractAudioFromVideo(videoPath: videoPath, outputPath: outputPath)
+let inputFilePath = "path/to/input/video.mp4"
+let outputFilePath = "path/to/output/audio.wav"
+
+extractAudioFromVideo(inputPath: inputFilePath, outputPath: outputFilePath)
