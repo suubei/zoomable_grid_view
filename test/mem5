@@ -1,40 +1,41 @@
 import AVFoundation
 
-func getAudioCodecFromFile(at url: URL) -> AVFileType? {
-    let asset = AVAsset(url: url)
+func getAudioMimeType(fromVideoURL videoURL: URL) -> String? {
+    let asset = AVAsset(url: videoURL)
     
-    // Get the audio track
+    // Check if the asset has any audio tracks
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
         return nil
     }
     
-    // Get the audio format description
-    guard let formatDescription = audioTrack.formatDescriptions.first as? CMAudioFormatDescription else {
+    let audioFormatDescriptions = audioTrack.formatDescriptions as! [CMAudioFormatDescription]
+    guard let audioFormatDescription = audioFormatDescriptions.first else {
         return nil
     }
     
-    // Get the audio codec type
-    let codec = CMFormatDescriptionGetCodecType(formatDescription)
+    let audioCodec = CMFormatDescriptionGetMediaSubType(audioFormatDescription)
+    let audioMimeType = UTTypeCopyPreferredTagWithClass(audioCodec, kUTTagClassMIMEType)?.takeRetainedValue() as String?
     
-    // Convert codec to AVFileType
-    switch codec {
-    case kAudioCodecFLAC:
-        return .flac
-    case kAudioCodecALAC:
-        return .alac
-    case kAudioCodecAAC:
-        return .m4a
-    case kAudioCodecMP3:
-        return .mp3
-    default:
+    return audioMimeType
+}
+
+func convertMimeTypeToAVFileType(mimeType: String) -> AVFileType? {
+    guard let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, mimeType as CFString, nil)?.takeRetainedValue() else {
         return nil
     }
+    
+    return AVFileType(uti: uti)
 }
 
 // Usage example
-let videoURL = URL(fileURLWithPath: "path/to/video.mp4")
-if let audioCodec = getAudioCodecFromFile(at: videoURL) {
-    print("Audio codec: \(audioCodec.rawValue)")
+let videoURL = URL(fileURLWithPath: "/path/to/video.mov")
+if let audioMimeType = getAudioMimeType(fromVideoURL: videoURL) {
+    if let avFileType = convertMimeTypeToAVFileType(mimeType: audioMimeType) {
+        print("Audio MIME Type: \(audioMimeType)")
+        print("AVFileType: \(avFileType)")
+    } else {
+        print("Failed to convert MIME type to AVFileType")
+    }
 } else {
-    print("Failed to get audio codec.")
+    print("Video has no audio track")
 }
