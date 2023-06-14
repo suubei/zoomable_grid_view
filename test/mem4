@@ -62,7 +62,6 @@ if extractAudio(inputPath: inputPath, outputPath: outputPath) {
 
 
 
-
 import AVFoundation
 
 func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
@@ -70,7 +69,10 @@ func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
     let outputURL = URL(fileURLWithPath: outputPath)
 
     // Set up the input audio file
-    let inputFile = try! AVAudioFile(forReading: inputURL)
+    guard let inputFile = try? AVAudioFile(forReading: inputURL) else {
+        print("Failed to open input audio file")
+        return false
+    }
 
     // Set up the output audio file
     let outputSettings: [String: Any] = [
@@ -82,20 +84,37 @@ func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
         AVNumberOfChannelsKey: inputFile.fileFormat.channelCount
     ]
 
-    let outputFile = try! AVAudioFile(forWriting: outputURL, settings: outputSettings)
+    guard let outputFile = try? AVAudioFile(forWriting: outputURL, settings: outputSettings, commonFormat: .pcmFormatInt16, interleaved: false) else {
+        print("Failed to create output audio file")
+        return false
+    }
 
     // Set up the audio converter
     let inputFormat = inputFile.fileFormat
     let outputFormat = outputFile.fileFormat
-    let converter = try! AVAudioConverter(from: inputFormat, to: outputFormat)
+    guard let converter = try? AVAudioConverter(from: inputFormat, to: outputFormat) else {
+        print("Failed to create audio converter")
+        return false
+    }
 
     // Initialize the buffer for audio conversion
-    let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(inputFile.length))!
-    let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(inputFile.length))!
+    guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(inputFile.length)) else {
+        print("Failed to create input buffer")
+        return false
+    }
+    guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(inputFile.length)) else {
+        print("Failed to create output buffer")
+        return false
+    }
 
     // Start the conversion process
     while inputFile.framePosition < inputFile.length {
-        try! inputFile.read(into: inputBuffer)
+        do {
+            try inputFile.read(into: inputBuffer)
+        } catch {
+            print("Failed to read from input audio file: \(error)")
+            return false
+        }
 
         var error: NSError?
         let status = converter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
@@ -107,7 +126,12 @@ func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
             break
         }
 
-        try! outputFile.write(from: outputBuffer)
+        do {
+            try outputFile.write(from: outputBuffer)
+        } catch {
+            print("Failed to write to output audio file: \(error)")
+            return false
+        }
     }
 
     return true
@@ -122,4 +146,3 @@ if decodeAACtoPCM(inputPath: inputPath, outputPath: outputPath) {
 } else {
     print("AAC decoding to PCM failed")
 }
-
