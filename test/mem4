@@ -1,13 +1,15 @@
 import AVFoundation
 
-func extractAudioFromVideo(videoPath: String, outputPath: String) {
+import AVFoundation
+
+func extractAudioFromVideo(videoPath: String, outputPath: String) -> Bool {
     let videoURL = URL(fileURLWithPath: videoPath)
     let outputURL = URL(fileURLWithPath: outputPath)
     
     let asset = AVAsset(url: videoURL)
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
         print("视频中没有音频轨道")
-        return
+        return false
     }
     
     let assetReader: AVAssetReader
@@ -15,7 +17,7 @@ func extractAudioFromVideo(videoPath: String, outputPath: String) {
         assetReader = try AVAssetReader(asset: asset)
     } catch {
         print("创建AVAssetReader失败: \(error.localizedDescription)")
-        return
+        return false
     }
     
     let outputSettings: [String: Any] = [
@@ -24,8 +26,7 @@ func extractAudioFromVideo(videoPath: String, outputPath: String) {
         AVLinearPCMIsBigEndianKey: false,
         AVLinearPCMBitDepthKey: 16,
         AVLinearPCMIsNonInterleaved: false,
-        AVSampleRateKey: audioTrack.nominalFrameRate,
-        AVNumberOfChannelsKey: audioTrack.channelCount
+        AVSampleRateKey: audioTrack.nominalFrameRate
     ]
     
     let trackOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
@@ -34,9 +35,7 @@ func extractAudioFromVideo(videoPath: String, outputPath: String) {
     assetReader.startReading()
     
     let sampleRate = audioTrack.nominalFrameRate
-    let channels = audioTrack.channelCount
     
-    let wavFile = outputURL.appendingPathExtension("wav")
     let pcmFile = outputURL.appendingPathExtension("pcm")
     
     let pcmData = NSMutableData()
@@ -61,15 +60,31 @@ func extractAudioFromVideo(videoPath: String, outputPath: String) {
     do {
         try pcmData.write(to: pcmFile)
         
-        let pcmToWavConverter = PCMToWavConverter(pcmFileURL: pcmFile, wavFileURL: wavFile, sampleRate: sampleRate, channels: channels)
+        let channels = audioTrack.channelLayout?.channelCount ?? 0
+        
+        let pcmToWavConverter = PCMToWavConverter(pcmFileURL: pcmFile, wavFileURL: outputURL, sampleRate: sampleRate, channels: channels)
         try pcmToWavConverter.convert()
         
         try FileManager.default.removeItem(at: pcmFile)
         
         print("音频文件提取并保存成功")
+        return true
     } catch {
         print("音频文件提取或保存失败: \(error.localizedDescription)")
+        return false
     }
+}
+
+// PCM to WAV converter class (unchanged)
+
+// 使用示例
+let videoPath = "/path/to/video.mp4"
+let outputPath = "/path/to/output/audio.wav"
+let success = extractAudioFromVideo(videoPath: videoPath, outputPath: outputPath)
+if success {
+    print("音频文件提取和保存成功")
+} else {
+    print("音频文件提取或保存失败")
 }
 
 // PCM to WAV converter class
