@@ -1,41 +1,12 @@
 import AVFoundation
 
-func getAudioMimeType(fromVideoURL videoURL: URL) -> String? {
-    let asset = AVAsset(url: videoURL)
-    
-    // Check if the asset has any audio tracks
-    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-        return nil
-    }
-    
-    let audioFormatDescriptions = audioTrack.formatDescriptions as! [CMAudioFormatDescription]
-    guard let audioFormatDescription = audioFormatDescriptions.first else {
-        return nil
-    }
-    
-    let audioCodec = CMFormatDescriptionGetMediaSubType(audioFormatDescription)
-    let audioMimeType = UTTypeCopyPreferredTagWithClass(audioCodec, kUTTagClassMIMEType)?.takeRetainedValue() as String?
-    
-    return audioMimeType
-}
+let audioFormatDescription = CMFormatDescriptionCreate(nil, kCMMediaType_Audio, kAudioFormatMPEG4AAC, nil)
+let audioCodec = CMFormatDescriptionGetMediaSubType(audioFormatDescription)
 
-func convertMimeTypeToAVFileType(mimeType: String) -> AVFileType? {
-    guard let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, mimeType as CFString, nil)?.takeRetainedValue() else {
-        return nil
-    }
-    
-    return AVFileType(uti: uti)
-}
+let subtypeString = String(format: "%c%c%c%c",
+                           Int((audioCodec >> 24) & 0xFF),
+                           Int((audioCodec >> 16) & 0xFF),
+                           Int((audioCodec >> 8) & 0xFF),
+                           Int(audioCodec & 0xFF))
 
-// Usage example
-let videoURL = URL(fileURLWithPath: "/path/to/video.mov")
-if let audioMimeType = getAudioMimeType(fromVideoURL: videoURL) {
-    if let avFileType = convertMimeTypeToAVFileType(mimeType: audioMimeType) {
-        print("Audio MIME Type: \(audioMimeType)")
-        print("AVFileType: \(avFileType)")
-    } else {
-        print("Failed to convert MIME type to AVFileType")
-    }
-} else {
-    print("Video has no audio track")
-}
+print(subtypeString) // Output: "aac "
