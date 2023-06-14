@@ -1,232 +1,38 @@
-import Foundation
 import AVFoundation
 
-import AVFoundation
+func decodeAACtoPCM(inputURL: URL, outputURL: URL) {
+    let inputFile = try! AVAudioFile(forReading: inputURL)
+    let outputFile = try! AVAudioFile(forWriting: outputURL, settings: inputFile.fileFormat.settings)
 
-func convert(aacPath: String, pcmPath: String) -> Bool {
-    // Create input AVAsset
-    let asset = AVAsset(url: URL(fileURLWithPath: aacPath))
+    // Set up the input and output formats
+    let inputFormat = inputFile.fileFormat
+    let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: inputFormat.sampleRate, channels: 1, interleaved: true)
 
-    // Create AVAssetReader for the AAC file
-    guard let reader = try? AVAssetReader(asset: asset) else {
-        return false
+    // Create the audio converter
+    let converter = AVAudioConverter(from: inputFormat, to: outputFormat)!
+
+    // Set up the buffer for reading the input file
+    let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(inputFile.length))!
+    try! inputFile.read(into: inputBuffer)
+
+    // Set up the buffer for writing the output file
+    let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: inputBuffer.frameCapacity)!
+
+    // Perform the conversion
+    var error: NSError? = nil
+    let inputCallback: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+        outStatus.pointee = AVAudioConverterInputStatus.haveData
+        return inputBuffer
     }
 
-    // Find the audio track in the asset
-    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-        return false
-    }
+    converter.convert(to: outputBuffer, error: &error, withInputFrom: inputCallback)
 
-    // Define the output settings for the PCM file
-    let outputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMIsNonInterleaved: false
-    ]
-
-    // Create AVAssetReaderTrackOutput for the audio track with PCM output settings
-    let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
-    reader.add(output)
-
-    // Start reading the AAC file
-    reader.startReading()
-
-    // Create output file for PCM data
-    FileManager.default.createFile(atPath: pcmPath, contents: nil, attributes: nil)
-    guard let file = FileHandle(forWritingAtPath: pcmPath) else {
-        return false
-    }
-
-    // Write PCM data to the file
-    while let sampleBuffer = output.copyNextSampleBuffer() {
-        guard let pcmBuffer = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, bufferListSizeNeededOut: nil, bufferListOut: nil, bufferListSize: MemoryLayout<AudioBufferList>.size, blockBufferAllocator: nil, blockBufferMemoryAllocator: nil, flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, blockBufferOut: nil) else {
-            break
-        }
-
-        let bufferList = UnsafeMutableAudioBufferListPointer(pcmBuffer)
-        for buffer in bufferList {
-            let data = Data(bytes: buffer.mData!, count: Int(buffer.mDataByteSize))
-            file.write(data)
-        }
-
-        CMSampleBufferInvalidate(sampleBuffer)
-    }
-
-    // Finish reading the AAC file and close the output file
-    reader.cancelReading()
-    file.closeFile()
-
-    return true
+    // Write the output buffer to the output file
+    try! outputFile.write(from: outputBuffer)
 }
 
 // Usage example
-let aacPath = "/path/to/input.aac"
-let pcmPath = "/path/to/output.pcm"
+let inputURL = URL(fileURLWithPath: "path/to/inputfile.aac")
+let outputURL = URL(fileURLWithPath: "path/to/outputfile.pcm")
 
-let success = convert(aacPath: aacPath, pcmPath: pcmPath)
-if success {
-    print("AAC file converted to PCM file successfully.")
-} else {
-    print("Failed to convert AAC file to PCM file.")
-}
-
-
-// 写入 WAV 文件头
-func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescription) {
-    var basicDescription = AudioStreamBasicDescription()
-    let formatDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)
-    memcpy(&basicDescription, formatDescription, MemoryLayout<AudioStreamBasicDescription>.size)
-    
-    // WAV 文件头信息
-    var wavHeader = WavHeader()
-    wavHeader.riffChunkID = "RIFF".toUInt32()
-    wavHeader.riffChunkSize = 0
-    wavHeader.waveChunkID = "WAVE".toUInt32()
-    wavHeader.formatChunkID = "fmt ".toUInt32()
-    wavHeader.formatChunkSize = 16
-    wavHeader.audioFormat = kAudioFormatLinearPCM
-    wavHeader.numChannels = basicDescription.mChannelsPerFrame
-    wavHeader.sampleRate = Int32(basicDescription.mSampleRate)
-    wavHeader.byteRate = Int32(basicDescription.mBytesPerFrame * basicDescription.mSampleRate)
-    wavHeader.blockAlign = basicDescription.mBytesPerFrame
-    wavHeader.bitsPerSample = 16
-    wavHeader.dataChunkID = "data".toUInt32()
-    wavHeader.dataChunkSize = 0
-    
-    // 写入 WAV 文件头
-    withUnsafeBytes(of: &wavHeader) { (ptr: UnsafeRawBufferPointer) -> Void in
-        outputStream.write(ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), maxLength: MemoryLayout<WavHeader>.size)
-    }
-}
-
-// WAV 文件头结构体
-struct WavHeader {
-    var riffChunkID: UInt32
-    var riffChunkSize: UInt32
-    var waveChunkID: UInt32
-    var formatChunkID: UInt32
-    var formatChunkSize: UInt32
-    var audioFormat: UInt16
-    var numChannels: UInt16
-    var sampleRate: Int32
-    var byteRate: Int32
-    var blockAlign: UInt16
-    var bitsPerSample: UInt16
-    var dataChunkID: UInt32
-    var dataChunkSize: UInt32
-    
-    init() {
-        riffChunkID = 0
-        riffChunkSize = 0
-        waveChunkID = 0
-        formatChunkID = 0
-        formatChunkSize = 0
-        audioFormat = 0
-        numChannels = 0
-        sampleRate = 0
-        byteRate = 0
-        blockAlign = 0
-        bitsPerSample = 0
-        dataChunkID = 0
-        dataChunkSize = 0
-    }
-}
-
-// 辅助方法：将字符串转为 UInt32
-extension String {
-    func toUInt32() -> UInt32 {
-        let utf8Data = data(using: .utf8)!
-        let value = utf8Data.withUnsafeBytes { $0.load(as: UInt32.self) }
-        return UInt32(bigEndian: value)
-    }
-}
-
-// 使用示例
-let videoFilePath = "/path/to/inputfile.mp4"
-let wavFilePath = "/path/to/outputfile.wav"
-
-let success = extractAudioToWav(videoFilePath: videoFilePath, wavFilePath: wavFilePath)
-print("提取音轨并保存为 PCM 文件结果：\(success)")
-
-
-
-// Write WAV file header
-func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescription) {
-    var basicDescription = AudioStreamBasicDescription()
-    let formatDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)
-    memcpy(&basicDescription, formatDescription, MemoryLayout<AudioStreamBasicDescription>.size)
-    
-    // WAV file header information
-    var wavHeader = WavHeader()
-    wavHeader.riffChunkID = "RIFF".toUInt32()
-    wavHeader.riffChunkSize = 0
-    wavHeader.waveChunkID = "WAVE".toUInt32()
-    wavHeader.formatChunkID = "fmt ".toUInt32()
-    wavHeader.formatChunkSize = 16
-    wavHeader.audioFormat = basicDescription.mFormatID.rawValue // Assign the rawValue of the AudioFormatId enum
-    wavHeader.numChannels = basicDescription.mChannelsPerFrame
-    wavHeader.sampleRate = Int32(basicDescription.mSampleRate)
-    wavHeader.byteRate = Int32(basicDescription.mBytesPerFrame * basicDescription.mSampleRate)
-    wavHeader.blockAlign = basicDescription.mBytesPerFrame
-    wavHeader.bitsPerSample = 16
-    wavHeader.dataChunkID = "data".toUInt32()
-    wavHeader.dataChunkSize = 0
-    
-    // Write WAV file header
-    withUnsafeBytes(of: &wavHeader) { (ptr: UnsafeRawBufferPointer) -> Void in
-        outputStream.write(ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), maxLength: MemoryLayout<WavHeader>.size)
-    }
-}
-
-}
-
-// WAV 文件头结构体
-struct WavHeader {
-    var riffChunkID: UInt32
-    var riffChunkSize: UInt32
-    var waveChunkID: UInt32
-    var formatChunkID: UInt32
-    var formatChunkSize: UInt32
-    var audioFormat: UInt16
-    var numChannels: UInt16
-    var sampleRate: Int32
-    var byteRate: Int32
-    var blockAlign: UInt16
-    var bitsPerSample: UInt16
-    var dataChunkID: UInt32
-    var dataChunkSize: UInt32
-    
-    init() {
-        riffChunkID = 0
-        riffChunkSize = 0
-        waveChunkID = 0
-        formatChunkID = 0
-        formatChunkSize = 0
-        audioFormat = 0
-        numChannels = 0
-        sampleRate = 0
-        byteRate = 0
-        blockAlign = 0
-        bitsPerSample = 0
-        dataChunkID = 0
-        dataChunkSize = 0
-    }
-}
-
-// 辅助方法：将字符串转为 UInt32
-extension String {
-    func toUInt32() -> UInt32 {
-        let utf8Data = data(using: .utf8)!
-        let value = utf8Data.withUnsafeBytes { $0.load(as: UInt32.self) }
-        return UInt32(bigEndian: value)
-    }
-}
-
-// 使用示例
-let videoFilePath = "/path/to/inputfile.mp4"
-let wavFilePath = "/path/to/outputfile.wav"
-
-let success = extractAudioToWav(videoFilePath: videoFilePath, wavFilePath: wavFilePath)
-print("提取音轨并保存为 PCM 文件结果：\(success)")
+decodeAACtoPCM(inputURL: inputURL, outputURL: outputURL)
