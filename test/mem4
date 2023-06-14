@@ -1,87 +1,66 @@
 import Foundation
 import AVFoundation
 
-import AVFoundation
-
-import AVFoundation
-
-func convert(aacPath: String, wavPath: String) -> Bool {
-    let aacURL = URL(fileURLWithPath: aacPath)
-    let wavURL = URL(fileURLWithPath: wavPath)
+func convert(aacPath: String, pcmPath: String) -> Bool {
+    // Create input AVAsset
+    let asset = AVAsset(url: URL(fileURLWithPath: aacPath))
     
-    let aacAsset = AVURLAsset(url: aacURL)
-    let wavAssetWriter: AVAssetWriter
-    
-    do {
-        wavAssetWriter = try AVAssetWriter(outputURL: wavURL, fileType: .wav)
-    } catch {
-        print("Failed to create AVAssetWriter: \(error)")
+    // Create AVAssetReader for the AAC file
+    guard let reader = try? AVAssetReader(asset: asset) else {
         return false
     }
     
-    let aacTrack = aacAsset.tracks(withMediaType: .audio).first
-    let wavOutputSettings = [
+    // Define the output settings for the PCM file
+    let outputSettings: [String: Any] = [
         AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsBigEndianKey: false,
         AVLinearPCMIsFloatKey: false,
         AVLinearPCMBitDepthKey: 16,
-        AVNumberOfChannelsKey: 2,
-        AVSampleRateKey: 44100
-    ] as [String : Any]
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsNonInterleaved: false
+    ]
     
-    let wavInput = AVAssetWriterInput(mediaType: .audio, outputSettings: wavOutputSettings)
+    // Create AVAssetReaderOutput for the PCM file
+    let output = AVAssetReaderPCMOutput(mediaType: .audio, outputSettings: outputSettings)
+    reader.add(output)
     
-    if let aacTrack = aacTrack {
-        wavInput.expectsMediaDataInRealTime = false
-        wavAssetWriter.add(wavInput)
-        
-        let assetReader: AVAssetReader
-        
-        do {
-            assetReader = try AVAssetReader(asset: aacAsset)
-        } catch {
-            print("Failed to create AVAssetReader: \(error)")
-            return false
-        }
-        
-        let aacOutputSettings = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMBitDepthKey: 16,
-            AVNumberOfChannelsKey: 2,
-            AVSampleRateKey: 44100
-        ] as [String : Any]
-        
-        let aacOutput = AVAssetReaderTrackOutput(track: aacTrack, outputSettings: aacOutputSettings)
-        assetReader.add(aacOutput)
-        
-        wavAssetWriter.startWriting()
-        assetReader.startReading()
-        
-        let audioTrackOutput = assetReader.outputs.first!
-        
-        while let sampleBuffer = audioTrackOutput.copyNextSampleBuffer() {
-            wavInput.append(sampleBuffer)
-        }
-        
-        wavInput.markAsFinished()
-        wavAssetWriter.finishWriting {
-            print("AAC to WAV conversion completed successfully.")
-        }
-        
-        return true
-    } else {
-        print("Failed to find audio track in the AAC file.")
+    // Start reading the AAC file
+    reader.startReading()
+    
+    // Create output file for PCM data
+    guard let file = FileHandle(forWritingAtPath: pcmPath) else {
         return false
     }
+    
+    // Write PCM data to the file
+    while let sampleBuffer = output.copyNextSampleBuffer() {
+        guard let buffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
+            break
+        }
+        
+        let length = CMBlockBufferGetDataLength(buffer)
+        let data = NSMutableData(length: length)
+        CMBlockBufferCopyDataBytes(buffer, atOffset: 0, dataLength: length, destination: data!.mutableBytes)
+        
+        file.write(data! as Data)
+    }
+    
+    // Finish reading the AAC file and close the output file
+    reader.cancelReading()
+    file.closeFile()
+    
+    return true
 }
 
-// Usage example:
+// Usage example
 let aacPath = "/path/to/input.aac"
-let wavPath = "/path/to/output.wav"
-let success = convert(aacPath: aacPath, wavPath: wavPath)
-print("Conversion successful: \(success)")
+let pcmPath = "/path/to/output.pcm"
+
+let success = convert(aacPath: aacPath, pcmPath: pcmPath)
+if success {
+    print("AAC file converted to PCM file successfully.")
+} else {
+    print("Failed to convert AAC file to PCM file.")
+}
 
 
 func extractAudio(videoFilePath: String, outputFilePath: String) -> Bool {
