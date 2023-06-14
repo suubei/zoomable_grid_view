@@ -1,24 +1,37 @@
 import AVFoundation
 
-func extractAudioFromVideo(inputPath: String, outputPath: String) {
+func extractAudioFromVideo(inputPath: String, outputPath: String) -> Bool {
     let asset = AVAsset(url: URL(fileURLWithPath: inputPath))
     let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough)
     exportSession?.outputFileType = AVFileType.wav
     exportSession?.outputURL = URL(fileURLWithPath: outputPath)
     
+    let exportSemaphore = DispatchSemaphore(value: 0)
+    
     exportSession?.exportAsynchronously(completionHandler: {
         if exportSession?.status == .completed {
             print("Audio extraction completed.")
+            exportSemaphore.signal() // 释放信号量，表示成功
         } else if exportSession?.status == .failed {
             if let error = exportSession?.error {
                 print("Audio extraction failed with error: \(error.localizedDescription)")
             }
+            exportSemaphore.signal() // 释放信号量，表示失败
         }
     })
+    
+    _ = exportSemaphore.wait(timeout: .distantFuture) // 等待信号量
+    
+    return exportSession?.status == .completed
 }
 
 // 使用示例
 let inputFilePath = "path/to/input/video.mp4"
 let outputFilePath = "path/to/output/audio.wav"
 
-extractAudioFromVideo(inputPath: inputFilePath, outputPath: outputFilePath)
+let success = extractAudioFromVideo(inputPath: inputFilePath, outputPath: outputFilePath)
+if success {
+    print("Audio extraction succeeded.")
+} else {
+    print("Audio extraction failed.")
+}
