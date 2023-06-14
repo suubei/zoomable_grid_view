@@ -1,0 +1,22 @@
+import AVFoundation
+
+func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) {
+    let asset = AVAsset(url: URL(fileURLWithPath: inputFilePath))
+    let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough)
+    exportSession?.outputFileType = .wav
+    exportSession?.outputURL = URL(fileURLWithPath: outputFilePath)
+    
+    exportSession?.exportAsynchronously(completionHandler: {
+        if exportSession?.status == .completed {
+            print("音频已解码并保存为 WAV 文件：\(outputFilePath)")
+        } else if exportSession?.status == .failed {
+            print("音频解码失败")
+        }
+    })
+}
+
+// 使用示例
+let inputFilePath = "path/to/inputfile.mp4"
+let outputFilePath = "path/to/outputfile.wav"
+
+extractAudioFromMP4(inputFilePath: inputFilePath, outputFilePath: outputFilePath)
