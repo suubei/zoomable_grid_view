@@ -2,27 +2,89 @@ import AVFoundation
 
 func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool {
     let asset = AVAsset(url: URL(fileURLWithPath: inputFilePath))
-    let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough)
-    exportSession?.outputFileType = .wav
-    exportSession?.outputURL = URL(fileURLWithPath: outputFilePath)
     
-    let semaphore = DispatchSemaphore(value: 0)
-    var success = false
+    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
+        print("未找到音频轨道")
+        return false
+    }
     
-    exportSession?.exportAsynchronously(completionHandler: {
-        if exportSession?.status == .completed {
-            success = true
-            print("音频已解码并保存为 WAV 文件：\(outputFilePath)")
-        } else if exportSession?.status == .failed {
-            print("音频解码失败")
+    let outputSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsNonInterleaved: false
+    ]
+    
+    let outputURL = URL(fileURLWithPath: outputFilePath)
+    
+    do {
+        let assetReader = try AVAssetReader(asset: asset)
+        let trackOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+        
+        assetReader.add(trackOutput)
+        
+        assetReader.startReading()
+        
+        let fileOutput = FileHandle(forWritingAtPath: outputFilePath)
+        fileOutput?.truncateFile(atOffset: 0)
+        
+        let audioFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: audioTrack.nominalFrameRate, channels: audioTrack.formatDescriptions.first.map { $0.channelCount } ?? 0, interleaved: false)
+        
+        let audioFile = try AVAudioFile(forWriting: outputURL, settings: audioFormat!.settings, commonFormat: .pcmFormatInt16, interleaved: false)
+        
+        while let sampleBuffer = trackOutput.copyNextSampleBuffer() {
+            let presentationTimeStamp = CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer)
+            let audioBuffer = CMSampleBufferGetDataBuffer(sampleBuffer)
+            
+            var blockBuffer: CMBlockBuffer?
+            var audioBufferList = AudioBufferList(
+                mNumberBuffers: 1,
+                mBuffers: AudioBuffer(
+                    mNumberChannels: UInt32(audioTrack.formatDescriptions.first.map { $0.channelCount } ?? 0),
+                    mDataByteSize: CMBlockBufferGetDataLength(audioBuffer!),
+                    mData: nil
+                )
+            )
+            
+            let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+                sampleBuffer,
+                bufferListSizeNeededOut: nil,
+                bufferListOut: &audioBufferList,
+                bufferListSize: MemoryLayout<AudioBufferList>.size,
+                blockBufferAllocator: nil,
+                blockBufferMemoryAllocator: nil,
+                flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+                blockBufferOut: &blockBuffer
+            )
+            
+            guard status == 0 else {
+                print("无法获取 PCM 缓冲区")
+                return false
+            }
+            
+            let audioBufferData = Data(bytes: audioBufferList.mBuffers.mData!, count: Int(audioBufferList.mBuffers.mDataByteSize))
+            
+            let audioBufferPCM = AVAudioPCMBuffer(pcmFormat: audioFormat!, frameCapacity: AVAudioFrameCount(audioTrack.formatDescriptions.first.map { $0.channelCount } ?? 0))
+            audioBufferPCM?.frameLength = AVAudioFrameCount(audioBufferData.count) / audioFormat!.streamDescription.pointee.mBytesPerFrame
+            memcpy(audioBufferPCM!.floatChannelData![0], audioBufferData.bytes, audioBufferData.count)
+            
+            try audioFile.write(from: audioBufferPCM!)
+            
+            CMSampleBufferInvalidate(sampleBuffer)
+            CFRelease(sampleBuffer)
+            CFRelease(blockBuffer)
         }
         
-        semaphore.signal()
-    })
-    
-    _ = semaphore.wait(timeout: .distantFuture)
-    
-    return success
+        assetReader.cancelReading()
+        fileOutput?.closeFile()
+        
+        print("音频已解码并保存为 WAV 文件：\(outputFilePath)")
+        return true
+    } catch {
+        print("音频解码失败：\(error)")
+        return false
+    }
 }
 
 // 使用示例
