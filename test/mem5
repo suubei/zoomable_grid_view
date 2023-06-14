@@ -1,12 +1,50 @@
 import AVFoundation
 
-let audioFormatDescription = CMFormatDescriptionCreate(nil, kCMMediaType_Audio, kAudioFormatMPEG4AAC, nil)
-let audioCodec = CMFormatDescriptionGetMediaSubType(audioFormatDescription)
+func convertAACtoLPCM(aacURL: URL, lpcmURL: URL, completion: @escaping (Bool) -> Void) {
+    let sourceFile = AVAsset(url: aacURL)
+    
+    let outputSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsNonInterleaved: false
+    ]
+    
+    guard let audioConverter = AVAudioConverter(from: sourceFile, toFileType: .wav) else {
+        completion(false)
+        return
+    }
+    
+    do {
+        let outputFile = try AVAudioFile(forWriting: lpcmURL, settings: outputSettings)
+        
+        audioConverter.outputFormat = outputFile.processingFormat
+        
+        audioConverter.convert(to: outputFile) { (buffer, time) in
+            do {
+                try outputFile.write(from: buffer)
+            } catch {
+                completion(false)
+            }
+        }
+        
+        audioConverter.reset()
+        
+        completion(true)
+    } catch {
+        completion(false)
+    }
+}
 
-let subtypeString = String(format: "%c%c%c%c",
-                           Int((audioCodec >> 24) & 0xFF),
-                           Int((audioCodec >> 16) & 0xFF),
-                           Int((audioCodec >> 8) & 0xFF),
-                           Int(audioCodec & 0xFF))
+// Usage example
+let aacURL = URL(fileURLWithPath: "/path/to/input.aac")
+let lpcmURL = URL(fileURLWithPath: "/path/to/output.wav")
 
-print(subtypeString) // Output: "aac "
+convertAACtoLPCM(aacURL: aacURL, lpcmURL: lpcmURL) { success in
+    if success {
+        print("Conversion successful!")
+    } else {
+        print("Conversion failed.")
+    }
+}
