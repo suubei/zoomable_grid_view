@@ -1,6 +1,9 @@
 import Foundation
 import AVFoundation
 
+import Foundation
+import AVFoundation
+
 func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     // 创建 AVAsset 对象
     let asset = AVAsset(url: URL(fileURLWithPath: videoFilePath))
@@ -77,6 +80,84 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
         return false
     }
 }
+
+// 写入 WAV 文件头
+func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescription) {
+    var basicDescription = AudioStreamBasicDescription()
+    let formatDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)
+    memcpy(&basicDescription, formatDescription, MemoryLayout<AudioStreamBasicDescription>.size)
+    
+    // WAV 文件头信息
+    var wavHeader = WavHeader()
+    wavHeader.riffChunkID = "RIFF".toUInt32()
+    wavHeader.riffChunkSize = 0
+    wavHeader.waveChunkID = "WAVE".toUInt32()
+    wavHeader.formatChunkID = "fmt ".toUInt32()
+    wavHeader.formatChunkSize = 16
+    wavHeader.audioFormat = kAudioFormatLinearPCM
+    wavHeader.numChannels = basicDescription.mChannelsPerFrame
+    wavHeader.sampleRate = Int32(basicDescription.mSampleRate)
+    wavHeader.byteRate = Int32(basicDescription.mBytesPerFrame * basicDescription.mSampleRate)
+    wavHeader.blockAlign = basicDescription.mBytesPerFrame
+    wavHeader.bitsPerSample = 16
+    wavHeader.dataChunkID = "data".toUInt32()
+    wavHeader.dataChunkSize = 0
+    
+    // 写入 WAV 文件头
+    withUnsafeBytes(of: &wavHeader) { (ptr: UnsafeRawBufferPointer) -> Void in
+        outputStream.write(ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), maxLength: MemoryLayout<WavHeader>.size)
+    }
+}
+
+// WAV 文件头结构体
+struct WavHeader {
+    var riffChunkID: UInt32
+    var riffChunkSize: UInt32
+    var waveChunkID: UInt32
+    var formatChunkID: UInt32
+    var formatChunkSize: UInt32
+    var audioFormat: UInt16
+    var numChannels: UInt16
+    var sampleRate: Int32
+    var byteRate: Int32
+    var blockAlign: UInt16
+    var bitsPerSample: UInt16
+    var dataChunkID: UInt32
+    var dataChunkSize: UInt32
+    
+    init() {
+        riffChunkID = 0
+        riffChunkSize = 0
+        waveChunkID = 0
+        formatChunkID = 0
+        formatChunkSize = 0
+        audioFormat = 0
+        numChannels = 0
+        sampleRate = 0
+        byteRate = 0
+        blockAlign = 0
+        bitsPerSample = 0
+        dataChunkID = 0
+        dataChunkSize = 0
+    }
+}
+
+// 辅助方法：将字符串转为 UInt32
+extension String {
+    func toUInt32() -> UInt32 {
+        let utf8Data = data(using: .utf8)!
+        let value = utf8Data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        return UInt32(bigEndian: value)
+    }
+}
+
+// 使用示例
+let videoFilePath = "/path/to/inputfile.mp4"
+let wavFilePath = "/path/to/outputfile.wav"
+
+let success = extractAudioToWav(videoFilePath: videoFilePath, wavFilePath: wavFilePath)
+print("提取音轨并保存为 PCM 文件结果：\(success)")
+
 
 
 // Write WAV file header
