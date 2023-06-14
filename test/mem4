@@ -1,106 +1,86 @@
 import Foundation
 import AVFoundation
 
-import Foundation
 import AVFoundation
 
-import Foundation
-import AVFoundation
-
-import Foundation
-import AVFoundation
-
-import Foundation
-import AVFoundation
-
-import Foundation
-import AVFoundation
-
-func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
-    // Create AVAsset object
-    let asset = AVAsset(url: URL(fileURLWithPath: videoFilePath))
+func extractAudio(videoFilePath: String, outputFilePath: String) -> Bool {
+    let videoURL = URL(fileURLWithPath: videoFilePath)
+    let outputURL = URL(fileURLWithPath: outputFilePath)
     
-    // Create AVAssetReader object
-    guard let assetReader = try? AVAssetReader(asset: asset) else {
-        print("Failed to create AVAssetReader")
+    let asset = AVURLAsset(url: videoURL)
+    let audioTrack = asset.tracks(withMediaType: .audio).first
+    
+    guard let audioTrack = audioTrack else {
+        print("未找到音频轨道")
         return false
     }
     
-    // Get audio track
-    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-        print("No audio track found")
-        return false
-    }
-    
-    // Get audio format description
-    let formatDescription = audioTrack.formatDescriptions[0] as! CMAudioFormatDescription
-    
-    // Configure audio output settings
-    let outputSettings: [String: Any] = [
+    let audioOutputSettings: [String: Any] = [
         AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: 44100,
+        AVNumberOfChannelsKey: 2,
         AVLinearPCMBitDepthKey: 16,
         AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false
+        AVLinearPCMIsNonInterleaved: false
     ]
     
-    // Create AVAssetReaderTrackOutput object
-    let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
-    
-    // Add output to reader
-    assetReader.add(audioOutput)
-    
-    // Start reading
-    assetReader.startReading()
-    
-    // Create PCM file output stream
-    guard let wavFile = OutputStream(toFileAtPath: wavFilePath, append: false) else {
-        print("Failed to create PCM file")
-        return false
-    }
-    
-    // Open PCM file output stream
-    wavFile.open()
-    
-    // Write WAV file header
-    writeWavHeader(to: wavFile, format: formatDescription)
-    
-    // Read and write audio data
-    while assetReader.status == .reading {
-        guard let sampleBuffer = audioOutput.copyNextSampleBuffer() else {
-            continue
-        }
+    do {
+        let assetReader = try AVAssetReader(asset: asset)
         
-        guard let format = formatDescription.audioFormatList?.pointee else {
-            print("Failed to get audio format information")
-            return false
-        }
+        let trackOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: audioOutputSettings)
+        assetReader.add(trackOutput)
         
-        for bufferIndex in 0..<sampleBuffer.numSamples {
-            let audioBuffer = sampleBuffer.audioBufferList[bufferIndex]
-            let data = Data(bytes: audioBuffer.mData!, count: Int(audioBuffer.mDataByteSize))
-            
-            _ = data.withUnsafeBytes { (ptr: UnsafePointer<Int8>) -> Int in
-                let pointer = UnsafeMutablePointer<Int8>(mutating: ptr)
-                wavFile.write(pointer, maxLength: data.count)
-                return data.count
+        let pcmFile = try AVAudioFile(forWriting: outputURL, settings: audioOutputSettings, commonFormat: .pcmFormatInt16, interleaved: false)
+        
+        assetReader.startReading()
+        pcmFile.framePosition = 0
+        
+        while let nextBuffer = trackOutput.copyNextSampleBuffer() {
+            guard let buffer = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(nextBuffer, bufferListSizeNeededOut: nil, bufferListOut: nil, bufferListSize: MemoryLayout<AudioBufferList>.size, blockBufferAllocator: kCFAllocatorDefault, blockBufferMemoryAllocator: kCFAllocatorDefault, flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, bufferOut: nil) else {
+                continue
             }
+            
+            let audioBufferList = UnsafeMutableAudioBufferListPointer(buffer)
+            
+            for audioBuffer in audioBufferList {
+                let data = audioBuffer.mData!.assumingMemoryBound(to: Int16.self)
+                let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Int16>.size
+                let frameCount = pcmFile.framePosition + AVAudioFramePosition(count)
+                
+                let buffer = AVAudioPCMBuffer(pcmFormat: pcmFile.processingFormat, frameCapacity: frameCount)!
+                buffer.frameLength = frameCount
+                
+                let audioBuffer = buffer.audioBufferList.pointee.mBuffers
+                audioBuffer.mDataByteSize = buffer.frameCapacity * UInt32(MemoryLayout<Int16>.size)
+                audioBuffer.mData = data
+                
+                pcmFile.write(from: buffer, error: nil)
+            }
+            
+            CMSampleBufferInvalidate(nextBuffer)
         }
         
-        CMSampleBufferInvalidate(sampleBuffer)
-    }
-    
-    // Release resources
-    wavFile.close()
-    
-    if assetReader.status == .completed {
-        print("Audio track successfully extracted and saved as PCM file: \(wavFilePath)")
+        pcmFile.framePosition = pcmFile.frameLength
+        pcmFile.write(from: AVAudioPCMBuffer(pcmFormat: pcmFile.processingFormat, frameCapacity: 0)!, error: nil)
+        
+        assetReader.cancelReading()
         return true
-    } else {
-        print("Failed to extract audio track")
+    } catch {
+        print("音频提取和解码失败: \(error.localizedDescription)")
         return false
     }
 }
 
+// 使用示例
+let videoFilePath = "/path/to/input.mp4"
+let outputFilePath = "/path/to/output.pcm"
+
+let extractionSuccess = extractAudio(videoFilePath: videoFilePath, outputFilePath: outputFilePath)
+if extractionSuccess {
+    print("音轨提取和解码成功")
+} else {
+    print("音轨提取和解码失败")
+}
 
 
 // 写入 WAV 文件头
