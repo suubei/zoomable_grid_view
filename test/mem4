@@ -1,67 +1,61 @@
 import AVFoundation
 
-func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
+func extractAudio(inputPath: String, outputPath: String) -> Bool {
     let inputURL = URL(fileURLWithPath: inputPath)
     let outputURL = URL(fileURLWithPath: outputPath)
 
     let asset = AVAsset(url: inputURL)
-    let audioAssetTrack = asset.tracks(withMediaType: .audio).first
 
-    guard let track = audioAssetTrack else {
-        print("Failed to extract audio track")
+    // Create an export session with the desired output file type
+    guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+        print("Failed to create export session")
         return false
     }
 
-    do {
-        let outputSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMBitDepthKey: 16
-        ]
+    // Specify the output format and file type (e.g., M4A)
+    exportSession.outputFileType = .m4a
+    exportSession.outputURL = outputURL
 
-        let converter = try AVAudioConverter(from: track.formatDescriptions.first as! CMAudioFormatDescription, to: outputSettings)
-        
-        let outputFile = try AVAudioFile(forWriting: outputURL, settings: converter.outputFormat.sampleRate)
+    // Get the audio track from the asset
+    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
+        print("No audio track found")
+        return false
+    }
 
-        let outputBuffer = AVAudioPCMBuffer(pcmFormat: converter.outputFormat, frameCapacity: AVAudioFrameCount(converter.outputFormat.sampleRate))
-        
-        try outputFile.write(from: outputBuffer)
+    // Set the time range to extract the full audio track
+    let timeRange = CMTimeRange(start: CMTime.zero, duration: asset.duration)
+    exportSession.timeRange = timeRange
 
-        let inputFile = try AVAudioFile(forReading: inputURL)
-        
-        while let buffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat, frameCapacity: AVAudioFrameCount(inputFile.processingFormat.sampleRate)) {
-            try inputFile.read(into: buffer)
-            
-            let inputCallback: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-                outStatus.pointee = AVAudioConverterInputStatus.haveData
-                return buffer
+    // Export the audio track asynchronously
+    let exportSemaphore = DispatchSemaphore(value: 0)
+    exportSession.exportAsynchronously {
+        switch exportSession.status {
+        case .completed:
+            print("Audio extraction completed successfully")
+            exportSemaphore.signal()
+        case .failed, .cancelled, .unknown:
+            if let error = exportSession.error {
+                print("Audio extraction failed with error: \(error.localizedDescription)")
+            } else {
+                print("Audio extraction failed")
             }
-            
-            var outputPacketCount = AVAudioPacketCount(buffer.frameCapacity)
-            let status = converter.convert(to: outputBuffer, error: nil, withInputFrom: inputCallback, inputFrameCount: buffer.frameLength, outputPacketCount: &outputPacketCount)
-            
-            if status != .haveData && status != .inputRanDry {
-                break
-            }
-            
-            try outputFile.write(from: outputBuffer)
+            exportSemaphore.signal()
+        default:
+            break
         }
-        
-        return true
-    } catch {
-        print("Error during AAC to PCM conversion: \(error)")
-        return false
     }
+
+    _ = exportSemaphore.wait(timeout: .distantFuture)
+
+    return exportSession.status == .completed
 }
 
 // Usage example
 let inputPath = "/path/to/input/video.mp4"
-let outputPath = "/path/to/output/audio.pcm"
+let outputPath = "/path/to/output/audio.m4a"
 
-let success = decodeAACtoPCM(inputPath: inputPath, outputPath: outputPath)
-if success {
-    print("AAC to PCM conversion successful")
+if extractAudio(inputPath: inputPath, outputPath: outputPath) {
+    print("Audio extraction completed")
 } else {
-    print("AAC to PCM conversion failed")
+    print("Audio extraction failed")
 }
