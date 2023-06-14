@@ -1,36 +1,38 @@
 import AVFoundation
 
 func convertAACtoLPCM(aacURL: URL, lpcmURL: URL, completion: @escaping (Bool) -> Void) {
-    let sourceFile = AVAsset(url: aacURL)
-    
-    let outputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsNonInterleaved: false
-    ]
-    
-    guard let audioConverter = AVAudioConverter(from: sourceFile, toFileType: .wav) else {
+    let inputFile: AVAudioFile
+    do {
+        inputFile = try AVAudioFile(forReading: aacURL)
+    } catch {
         completion(false)
         return
     }
-    
+
+    let inputFormat = inputFile.fileFormat
+    let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: inputFormat.sampleRate, channels: inputFormat.channelCount, interleaved: false)!
+
+    guard let audioConverter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
+        completion(false)
+        return
+    }
+
     do {
-        let outputFile = try AVAudioFile(forWriting: lpcmURL, settings: outputSettings)
-        
-        audioConverter.outputFormat = outputFile.processingFormat
-        
-        audioConverter.convert(to: outputFile) { (buffer, time) in
-            do {
-                try outputFile.write(from: buffer)
-            } catch {
-                completion(false)
-            }
+        let outputFile = try AVAudioFile(forWriting: lpcmURL, settings: outputFormat.settings, commonFormat: outputFormat.commonFormat, interleaved: outputFormat.isInterleaved)
+
+        let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(inputFile.length))!
+        try inputFile.read(into: inputBuffer)
+
+        let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: inputBuffer.frameCapacity)!
+        var error: NSError?
+
+        audioConverter.convert(to: outputBuffer, error: &error) { _, outStatus in
+            outStatus.pointee = .done
+            return .noDataNow
         }
-        
-        audioConverter.reset()
-        
+
+        try outputFile.write(from: outputBuffer)
+
         completion(true)
     } catch {
         completion(false)
