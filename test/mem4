@@ -1,15 +1,22 @@
 import Foundation
 import AVFoundation
 
+import AVFoundation
+
 func convert(aacPath: String, pcmPath: String) -> Bool {
     // Create input AVAsset
     let asset = AVAsset(url: URL(fileURLWithPath: aacPath))
-    
+
     // Create AVAssetReader for the AAC file
     guard let reader = try? AVAssetReader(asset: asset) else {
         return false
     }
-    
+
+    // Find the audio track in the asset
+    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
+        return false
+    }
+
     // Define the output settings for the PCM file
     let outputSettings: [String: Any] = [
         AVFormatIDKey: kAudioFormatLinearPCM,
@@ -18,36 +25,39 @@ func convert(aacPath: String, pcmPath: String) -> Bool {
         AVLinearPCMIsBigEndianKey: false,
         AVLinearPCMIsNonInterleaved: false
     ]
-    
-    // Create AVAssetReaderOutput for the PCM file
-    let output = AVAssetReaderPCMOutput(mediaType: .audio, outputSettings: outputSettings)
+
+    // Create AVAssetReaderTrackOutput for the audio track with PCM output settings
+    let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
     reader.add(output)
-    
+
     // Start reading the AAC file
     reader.startReading()
-    
+
     // Create output file for PCM data
+    FileManager.default.createFile(atPath: pcmPath, contents: nil, attributes: nil)
     guard let file = FileHandle(forWritingAtPath: pcmPath) else {
         return false
     }
-    
+
     // Write PCM data to the file
     while let sampleBuffer = output.copyNextSampleBuffer() {
-        guard let buffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
+        guard let pcmBuffer = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, bufferListSizeNeededOut: nil, bufferListOut: nil, bufferListSize: MemoryLayout<AudioBufferList>.size, blockBufferAllocator: nil, blockBufferMemoryAllocator: nil, flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, blockBufferOut: nil) else {
             break
         }
-        
-        let length = CMBlockBufferGetDataLength(buffer)
-        let data = NSMutableData(length: length)
-        CMBlockBufferCopyDataBytes(buffer, atOffset: 0, dataLength: length, destination: data!.mutableBytes)
-        
-        file.write(data! as Data)
+
+        let bufferList = UnsafeMutableAudioBufferListPointer(pcmBuffer)
+        for buffer in bufferList {
+            let data = Data(bytes: buffer.mData!, count: Int(buffer.mDataByteSize))
+            file.write(data)
+        }
+
+        CMSampleBufferInvalidate(sampleBuffer)
     }
-    
+
     // Finish reading the AAC file and close the output file
     reader.cancelReading()
     file.closeFile()
-    
+
     return true
 }
 
@@ -60,86 +70,6 @@ if success {
     print("AAC file converted to PCM file successfully.")
 } else {
     print("Failed to convert AAC file to PCM file.")
-}
-
-
-func extractAudio(videoFilePath: String, outputFilePath: String) -> Bool {
-    let videoURL = URL(fileURLWithPath: videoFilePath)
-    let outputURL = URL(fileURLWithPath: outputFilePath)
-    
-    let asset = AVURLAsset(url: videoURL)
-    let audioTrack = asset.tracks(withMediaType: .audio).first
-    
-    guard let audioTrack = audioTrack else {
-        print("未找到音频轨道")
-        return false
-    }
-    
-    let audioOutputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVSampleRateKey: 44100,
-        AVNumberOfChannelsKey: 2,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsNonInterleaved: false
-    ]
-    
-    do {
-        let assetReader = try AVAssetReader(asset: asset)
-        
-        let trackOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: audioOutputSettings)
-        assetReader.add(trackOutput)
-        
-        let pcmFile = try AVAudioFile(forWriting: outputURL, settings: audioOutputSettings, commonFormat: .pcmFormatInt16, interleaved: false)
-        
-        assetReader.startReading()
-        pcmFile.framePosition = 0
-        
-        while let nextBuffer = trackOutput.copyNextSampleBuffer() {
-            guard let buffer = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(nextBuffer, bufferListSizeNeededOut: nil, bufferListOut: nil, bufferListSize: MemoryLayout<AudioBufferList>.size, blockBufferAllocator: kCFAllocatorDefault, blockBufferMemoryAllocator: kCFAllocatorDefault, flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, bufferOut: nil) else {
-                continue
-            }
-            
-            let audioBufferList = UnsafeMutableAudioBufferListPointer(buffer)
-            
-            for audioBuffer in audioBufferList {
-                let data = audioBuffer.mData!.assumingMemoryBound(to: Int16.self)
-                let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Int16>.size
-                let frameCount = pcmFile.framePosition + AVAudioFramePosition(count)
-                
-                let buffer = AVAudioPCMBuffer(pcmFormat: pcmFile.processingFormat, frameCapacity: frameCount)!
-                buffer.frameLength = frameCount
-                
-                let audioBuffer = buffer.audioBufferList.pointee.mBuffers
-                audioBuffer.mDataByteSize = buffer.frameCapacity * UInt32(MemoryLayout<Int16>.size)
-                audioBuffer.mData = data
-                
-                pcmFile.write(from: buffer, error: nil)
-            }
-            
-            CMSampleBufferInvalidate(nextBuffer)
-        }
-        
-        pcmFile.framePosition = pcmFile.frameLength
-        pcmFile.write(from: AVAudioPCMBuffer(pcmFormat: pcmFile.processingFormat, frameCapacity: 0)!, error: nil)
-        
-        assetReader.cancelReading()
-        return true
-    } catch {
-        print("音频提取和解码失败: \(error.localizedDescription)")
-        return false
-    }
-}
-
-// 使用示例
-let videoFilePath = "/path/to/input.mp4"
-let outputFilePath = "/path/to/output.pcm"
-
-let extractionSuccess = extractAudio(videoFilePath: videoFilePath, outputFilePath: outputFilePath)
-if extractionSuccess {
-    print("音轨提取和解码成功")
-} else {
-    print("音轨提取和解码失败")
 }
 
 
