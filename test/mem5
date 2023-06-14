@@ -26,19 +26,23 @@ func convertAACtoLPCM(aacURL: URL, lpcmURL: URL, completion: @escaping (Bool) ->
         let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(inputBuffer.frameCapacity))!
 
         while true {
-            var error: NSError?
-            let status = audioConverter.convert(to: outputBuffer, from: inputBuffer, error: &error)
+            do {
+                let status = try audioConverter.convert(to: outputBuffer, from: inputBuffer)
 
-            if status == .error || status == .endOfStream {
-                break
-            }
+                if status == .error || status == .endOfStream {
+                    break
+                }
 
-            try outputFile.write(from: outputBuffer)
+                try outputFile.write(from: outputBuffer)
 
-            if status == .haveData {
-                outputBuffer.frameLength = outputBuffer.frameCapacity
-            } else {
-                break
+                if status == .haveData {
+                    outputBuffer.frameLength = outputBuffer.frameCapacity
+                } else {
+                    break
+                }
+            } catch {
+                completion(false)
+                return
             }
         }
 
