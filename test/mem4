@@ -64,3 +64,67 @@ if extractAudioFromVideo(inputPath: inputPath, outputPath: outputPath) {
 } else {
     print("Audio extraction failed")
 }
+
+
+import AVFoundation
+
+func convertPCMtoWAV(inputPath: String, outputPath: String) -> Bool {
+    let inputURL = URL(fileURLWithPath: inputPath)
+    let outputURL = URL(fileURLWithPath: outputPath)
+
+    // Set up the input audio file
+    guard let inputFile = try? AVAudioFile(forReading: inputURL) else {
+        print("Failed to open input audio file")
+        return false
+    }
+
+    // Set up the output audio file
+    let outputSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMBitDepthKey: 16,
+        AVSampleRateKey: inputFile.fileFormat.sampleRate,
+        AVNumberOfChannelsKey: inputFile.fileFormat.channelCount
+    ]
+
+    guard let outputFile = try? AVAudioFile(forWriting: outputURL, settings: outputSettings, commonFormat: .pcmFormatInt16, interleaved: false) else {
+        print("Failed to create output audio file")
+        return false
+    }
+
+    // Initialize the buffer for audio conversion
+    guard let buffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat, frameCapacity: AVAudioFrameCount(inputFile.length)) else {
+        print("Failed to create audio buffer")
+        return false
+    }
+
+    // Read the audio data from the input file
+    do {
+        try inputFile.read(into: buffer)
+    } catch {
+        print("Failed to read from input audio file: \(error)")
+        return false
+    }
+
+    // Write the audio data to the output file
+    do {
+        try outputFile.write(from: buffer)
+    } catch {
+        print("Failed to write to output audio file: \(error)")
+        return false
+    }
+
+    return true
+}
+
+// Usage example
+let inputPath = "/path/to/input/audio.pcm"
+let outputPath = "/path/to/output/audio.wav"
+
+if convertPCMtoWAV(inputPath: inputPath, outputPath: outputPath) {
+    print("PCM to WAV conversion completed")
+} else {
+    print("PCM to WAV conversion failed")
+}
+
