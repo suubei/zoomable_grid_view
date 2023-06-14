@@ -1,36 +1,40 @@
 import AVFoundation
 
-func printAudioCodec(fromVideoAt videoURL: URL) {
-    let asset = AVURLAsset(url: videoURL)
-    let assetReader: AVAssetReader
+func getAudioCodecFromFile(at url: URL) -> AVFileType? {
+    let asset = AVAsset(url: url)
     
-    do {
-        assetReader = try AVAssetReader(asset: asset)
-    } catch {
-        print("Failed to initialize AVAssetReader: \(error)")
-        return
-    }
-    
+    // Get the audio track
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-        print("No audio track found in the video.")
-        return
+        return nil
     }
     
-    let outputSettings = [
-        AVFormatIDKey: kAudioFormatLinearPCM
-    ]
-    
-    let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
-    assetReader.add(readerOutput)
-    
-    assetReader.startReading()
-    
-    guard let audioFormatDescription = audioTrack.formatDescriptions.first,
-          let audioFormat = CMAudioFormatDescriptionGetStreamBasicDescription(audioFormatDescription)?.pointee else {
-        print("Failed to retrieve audio format description.")
-        return
+    // Get the audio format description
+    guard let formatDescription = audioTrack.formatDescriptions.first as? CMAudioFormatDescription else {
+        return nil
     }
     
-    let audioCodec = FourCharCode(bitPattern: audioFormat.mFormatID)
-    print("Audio Codec: \(audioCodec)")
+    // Get the audio codec type
+    let codec = CMFormatDescriptionGetCodecType(formatDescription)
+    
+    // Convert codec to AVFileType
+    switch codec {
+    case kAudioCodecFLAC:
+        return .flac
+    case kAudioCodecALAC:
+        return .alac
+    case kAudioCodecAAC:
+        return .m4a
+    case kAudioCodecMP3:
+        return .mp3
+    default:
+        return nil
+    }
+}
+
+// Usage example
+let videoURL = URL(fileURLWithPath: "path/to/video.mp4")
+if let audioCodec = getAudioCodecFromFile(at: videoURL) {
+    print("Audio codec: \(audioCodec.rawValue)")
+} else {
+    print("Failed to get audio codec.")
 }
