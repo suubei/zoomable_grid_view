@@ -3,48 +3,65 @@ import AVFoundation
 func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
     let inputURL = URL(fileURLWithPath: inputPath)
     let outputURL = URL(fileURLWithPath: outputPath)
-    
-    let inputFile = try! AVAudioFile(forReading: inputURL)
-    let outputFile = try! AVAudioFile(forWriting: outputURL, settings: inputFile.fileFormat.settings)
 
-    // Set up the input and output formats
-    let inputFormat = inputFile.fileFormat
-    guard let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: inputFormat.sampleRate, channels: 1, interleaved: true) else {
-        print("Failed to create output format")
+    let asset = AVAsset(url: inputURL)
+    let audioAssetTrack = asset.tracks(withMediaType: .audio).first
+
+    guard let track = audioAssetTrack else {
+        print("Failed to extract audio track")
         return false
     }
 
-    // Create the audio converter
-    let converter = AVAudioConverter(from: inputFormat, to: outputFormat)!
+    do {
+        let outputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMBitDepthKey: 16
+        ]
 
-    // Set up the buffer for reading the input file
-    let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(inputFile.length))!
-    try! inputFile.read(into: inputBuffer)
+        let converter = try AVAudioConverter(from: track.formatDescriptions.first as! CMAudioFormatDescription, to: outputSettings)
+        
+        let outputFile = try AVAudioFile(forWriting: outputURL, settings: converter.outputFormat.sampleRate)
 
-    // Set up the buffer for writing the output file
-    let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: inputBuffer.frameCapacity)!
+        let outputBuffer = AVAudioPCMBuffer(pcmFormat: converter.outputFormat, frameCapacity: AVAudioFrameCount(converter.outputFormat.sampleRate))
+        
+        try outputFile.write(from: outputBuffer)
 
-    // Perform the conversion
-    var error: NSError? = nil
-    let inputCallback: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-        outStatus.pointee = AVAudioConverterInputStatus.haveData
-        return inputBuffer
+        let inputFile = try AVAudioFile(forReading: inputURL)
+        
+        while let buffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat, frameCapacity: AVAudioFrameCount(inputFile.processingFormat.sampleRate)) {
+            try inputFile.read(into: buffer)
+            
+            let inputCallback: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+                outStatus.pointee = AVAudioConverterInputStatus.haveData
+                return buffer
+            }
+            
+            var outputPacketCount = AVAudioPacketCount(buffer.frameCapacity)
+            let status = converter.convert(to: outputBuffer, error: nil, withInputFrom: inputCallback, inputFrameCount: buffer.frameLength, outputPacketCount: &outputPacketCount)
+            
+            if status != .haveData && status != .inputRanDry {
+                break
+            }
+            
+            try outputFile.write(from: outputBuffer)
+        }
+        
+        return true
+    } catch {
+        print("Error during AAC to PCM conversion: \(error)")
+        return false
     }
-
-    converter.convert(to: outputBuffer, error: &error, withInputFrom: inputCallback)
-
-    // Write the output buffer to the output file
-    try! outputFile.write(from: outputBuffer)
-
-    return true
 }
 
 // Usage example
-let inputPath = "path/to/inputfile.aac"
-let outputPath = "path/to/outputfile.pcm"
+let inputPath = "/path/to/input/video.mp4"
+let outputPath = "/path/to/output/audio.pcm"
 
-if decodeAACtoPCM(inputPath: inputPath, outputPath: outputPath) {
-    print("AAC to PCM conversion succeeded")
+let success = decodeAACtoPCM(inputPath: inputPath, outputPath: outputPath)
+if success {
+    print("AAC to PCM conversion successful")
 } else {
     print("AAC to PCM conversion failed")
 }
