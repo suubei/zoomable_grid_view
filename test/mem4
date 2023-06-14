@@ -7,29 +7,29 @@ import AVFoundation
 import Foundation
 import AVFoundation
 
+import Foundation
+import AVFoundation
+
 func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
-    // 创建 AVAsset 对象
+    // Create AVAsset object
     let asset = AVAsset(url: URL(fileURLWithPath: videoFilePath))
     
-    // 创建 AVAssetReader 对象
+    // Create AVAssetReader object
     guard let assetReader = try? AVAssetReader(asset: asset) else {
-        print("无法创建 AVAssetReader")
+        print("Failed to create AVAssetReader")
         return false
     }
     
-    // 获取音频轨道
+    // Get audio track
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-        print("未找到音频轨道")
+        print("No audio track found")
         return false
     }
     
-    // 获取音频格式描述
-    guard let formatDescription = audioTrack.formatDescriptions.first as? CMAudioFormatDescription else {
-        print("无法获取音频格式描述")
-        return false
-    }
+    // Get audio format description
+    let formatDescription = audioTrack.formatDescriptions[0] as! CMAudioFormatDescription
     
-    // 配置音频输出设置
+    // Configure audio output settings
     let outputSettings: [String: Any] = [
         AVFormatIDKey: kAudioFormatLinearPCM,
         AVLinearPCMBitDepthKey: 16,
@@ -37,28 +37,28 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
         AVLinearPCMIsBigEndianKey: false
     ]
     
-    // 创建 AVAssetReaderTrackOutput 对象
+    // Create AVAssetReaderTrackOutput object
     let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
     
-    // 将输出添加到读取器
+    // Add output to reader
     assetReader.add(audioOutput)
     
-    // 开始读取
+    // Start reading
     assetReader.startReading()
     
-    // 创建 PCM 文件输出流
+    // Create PCM file output stream
     guard let wavFile = OutputStream(toFileAtPath: wavFilePath, append: false) else {
-        print("无法创建 PCM 文件")
+        print("Failed to create PCM file")
         return false
     }
     
-    // 打开 PCM 文件输出流
+    // Open PCM file output stream
     wavFile.open()
     
-    // 写入 WAV 文件头
+    // Write WAV file header
     writeWavHeader(to: wavFile, format: formatDescription)
     
-    // 读取并写入音频数据
+    // Read and write audio data
     let buffer = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
     
     while assetReader.status == .reading {
@@ -77,24 +77,19 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
         CMSampleBufferInvalidate(sampleBuffer)
     }
     
-    // 释放资源
+    // Release resources
     buffer.deallocate()
     wavFile.close()
     
     if assetReader.status == .completed {
-        print("音轨已成功提取并保存为 PCM 文件：\(wavFilePath)")
+        print("Audio track successfully extracted and saved as PCM file: \(wavFilePath)")
         return true
     } else {
-        print("提取音轨失败")
+        print("Failed to extract audio track")
         return false
     }
 }
 
-// 写入 WAV 文件头
-func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescription) {
-    var basicDescription = AudioStreamBasicDescription()
-    let formatDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)
-    memcpy(&
 
 
 // 写入 WAV 文件头
