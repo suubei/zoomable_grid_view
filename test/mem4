@@ -67,13 +67,11 @@ func extractAudioFromMP4(inputFilePath: String, outputFilePath: String) -> Bool 
             
             let audioBufferPCM = AVAudioPCMBuffer(pcmFormat: audioFormat!, frameCapacity: AVAudioFrameCount(audioTrack.formatDescriptions.first.map { $0.channelCount } ?? 0))
             audioBufferPCM?.frameLength = AVAudioFrameCount(audioBufferData.count) / audioFormat!.streamDescription.pointee.mBytesPerFrame
-            memcpy(audioBufferPCM!.floatChannelData![0], audioBufferData.bytes, audioBufferData.count)
+            audioBufferData.copyBytes(to: UnsafeMutableBufferPointer(start: audioBufferPCM!.int16ChannelData![0], count: audioBufferData.count / MemoryLayout<Int16>.size))
             
             try audioFile.write(from: audioBufferPCM!)
             
             CMSampleBufferInvalidate(sampleBuffer)
-            CFRelease(sampleBuffer)
-            CFRelease(blockBuffer)
         }
         
         assetReader.cancelReading()
