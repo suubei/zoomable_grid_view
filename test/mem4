@@ -1,30 +1,29 @@
 import AVFoundation
 
-func extractAudio(inputPath: String, outputPath: String) -> Bool {
+import AVFoundation
+
+func extractAudioFromVideo(inputPath: String, outputPath: String) -> Bool {
     let inputURL = URL(fileURLWithPath: inputPath)
     let outputURL = URL(fileURLWithPath: outputPath)
 
+    // Create an AVAsset from the input video file
     let asset = AVAsset(url: inputURL)
 
-    // Create an export session with the desired output file type
-    guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+    // Create an AVAssetExportSession with the desired output file type
+    guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
         print("Failed to create export session")
         return false
     }
 
-    // Specify the output format and file type (e.g., M4A)
-    exportSession.outputFileType = .m4a
+    // Set the output URL and file type
     exportSession.outputURL = outputURL
+    exportSession.outputFileType = .m4a
 
     // Get the audio track from the asset
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
         print("No audio track found")
         return false
     }
-
-    // Set the time range to extract the full audio track
-    let timeRange = CMTimeRange(start: CMTime.zero, duration: asset.duration)
-    exportSession.timeRange = timeRange
 
     // Export the audio track asynchronously
     let exportSemaphore = DispatchSemaphore(value: 0)
@@ -54,92 +53,12 @@ func extractAudio(inputPath: String, outputPath: String) -> Bool {
 let inputPath = "/path/to/input/video.mp4"
 let outputPath = "/path/to/output/audio.m4a"
 
-if extractAudio(inputPath: inputPath, outputPath: outputPath) {
+if extractAudioFromVideo(inputPath: inputPath, outputPath: outputPath) {
     print("Audio extraction completed")
 } else {
     print("Audio extraction failed")
 }
 
-
-
-import AVFoundation
-
-func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
-    let inputURL = URL(fileURLWithPath: inputPath)
-    let outputURL = URL(fileURLWithPath: outputPath)
-
-    // Set up the input audio file
-    guard let inputFile = try? AVAudioFile(forReading: inputURL) else {
-        print("Failed to open input audio file")
-        return false
-    }
-
-    // Set up the output audio file
-    let outputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMBitDepthKey: 16,
-        AVSampleRateKey: inputFile.fileFormat.sampleRate,
-        AVNumberOfChannelsKey: inputFile.fileFormat.channelCount
-    ]
-
-    guard let outputFile = try? AVAudioFile(forWriting: outputURL, settings: outputSettings, commonFormat: .pcmFormatInt16, interleaved: false) else {
-        print("Failed to create output audio file")
-        return false
-    }
-
-    // Set up the audio converter
-    let inputFormat = inputFile.fileFormat
-    let outputFormat = outputFile.fileFormat
-    guard let converter = try? AVAudioConverter(from: inputFormat, to: outputFormat) else {
-        print("Failed to create audio converter")
-        return false
-    }
-
-    // Initialize the buffer for audio conversion
-    guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(inputFile.length)) else {
-        print("Failed to create input buffer")
-        return false
-    }
-    guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(inputFile.length)) else {
-        print("Failed to create output buffer")
-        return false
-    }
-
-    // Start the conversion process
-    while inputFile.framePosition < inputFile.length {
-        do {
-            try inputFile.read(into: inputBuffer)
-        } catch {
-            print("Failed to read from input audio file: \(error)")
-            return false
-        }
-
-        var error: NSError?
-        let status = converter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
-            outStatus.pointee = AVAudioConverterInputStatus.haveData
-            return inputBuffer
-        }
-
-        if status != .haveData {
-            break
-        }
-
-        do {
-            try outputFile.write(from: outputBuffer)
-        } catch {
-            print("Failed to write to output audio file: \(error)")
-            return false
-        }
-    }
-
-    return true
-}
-
-// Usage example
-let inputPath = "/path/to/input/audio.aac"
-let outputPath = "/path/to/output/audio.pcm"
 
 if decodeAACtoPCM(inputPath: inputPath, outputPath: outputPath) {
     print("AAC decoding to PCM completed")
