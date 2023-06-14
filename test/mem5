@@ -1,38 +1,36 @@
 import AVFoundation
 
-func getAudioMIMEAndConvertToAVFileType(inputPath: String) -> AVFileType? {
-    let asset = AVAsset(url: URL(fileURLWithPath: inputPath))
+func printAudioCodec(fromVideoAt videoURL: URL) {
+    let asset = AVURLAsset(url: videoURL)
+    let assetReader: AVAssetReader
+    
+    do {
+        assetReader = try AVAssetReader(asset: asset)
+    } catch {
+        print("Failed to initialize AVAssetReader: \(error)")
+        return
+    }
     
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
         print("No audio track found in the video.")
-        return nil
+        return
     }
     
-    let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough)
+    let outputSettings = [
+        AVFormatIDKey: kAudioFormatLinearPCM
+    ]
     
-    guard let supportedFileTypes = exportSession?.supportedFileTypes else {
-        print("Failed to retrieve supported file types.")
-        return nil
+    let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+    assetReader.add(readerOutput)
+    
+    assetReader.startReading()
+    
+    guard let audioFormatDescription = audioTrack.formatDescriptions.first,
+          let audioFormat = CMAudioFormatDescriptionGetStreamBasicDescription(audioFormatDescription)?.pointee else {
+        print("Failed to retrieve audio format description.")
+        return
     }
     
-    for fileType in supportedFileTypes {
-        let mimeType = AVFileType.getMIMEType(from: fileType)
-        if mimeType == audioTrack.formatDescriptions.first?.formatDescriptionMimeType {
-            return fileType
-        }
-    }
-    
-    print("No matching AVFileType found for the audio track's MIME type.")
-    return nil
-}
-
-// 使用示例
-let inputFilePath = "path/to/input/video.mp4"
-
-if let audioFileType = getAudioMIMEAndConvertToAVFileType(inputPath: inputFilePath) {
-    print("Audio MIME type: \(audioFileType.rawValue)")
-    let avFileType = AVFileType(filenameExtension: audioFileType.rawValue)
-    print("Converted AVFileType: \(avFileType.rawValue)")
-} else {
-    print("Failed to retrieve audio MIME type and convert to AVFileType.")
+    let audioCodec = FourCharCode(bitPattern: audioFormat.mFormatID)
+    print("Audio Codec: \(audioCodec)")
 }
