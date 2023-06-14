@@ -4,6 +4,9 @@ import AVFoundation
 import Foundation
 import AVFoundation
 
+import Foundation
+import AVFoundation
+
 func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     // 创建 AVAsset 对象
     let asset = AVAsset(url: URL(fileURLWithPath: videoFilePath))
@@ -17,6 +20,12 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     // 获取音频轨道
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
         print("未找到音频轨道")
+        return false
+    }
+    
+    // 获取音频格式描述
+    guard let formatDescription = audioTrack.formatDescriptions.first as? CMAudioFormatDescription else {
+        print("无法获取音频格式描述")
         return false
     }
     
@@ -47,7 +56,7 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     wavFile.open()
     
     // 写入 WAV 文件头
-    writeWavHeader(to: wavFile, format: audioTrack.formatDescription)
+    writeWavHeader(to: wavFile, format: formatDescription)
     
     // 读取并写入音频数据
     let buffer = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
@@ -80,6 +89,13 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
         return false
     }
 }
+
+// 写入 WAV 文件头
+func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescription) {
+    var basicDescription = AudioStreamBasicDescription()
+    let formatDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)
+    memcpy(&
+
 
 // 写入 WAV 文件头
 func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescription) {
