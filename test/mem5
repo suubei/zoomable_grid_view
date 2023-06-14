@@ -2,53 +2,52 @@ import AVFoundation
 
 func convertM4AToWAV(inputURL: URL, outputURL: URL) {
     let asset = AVURLAsset(url: inputURL)
-    let audioAsset = asset.tracks(withMediaType: AVMediaType.audio).first!
+    let audioTrack = asset.tracks(withMediaType: AVMediaType.audio).first!
 
-    let outputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsNonInterleaved: false
-    ]
+    let sourceFormat = audioTrack.formatDescription!.audioStreamBasicDescription!.pointee
+    let destinationFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: sourceFormat.mSampleRate, channels: sourceFormat.mChannelsPerFrame, interleaved: false)!
 
-    let outputFileType = AVFileType.wav
+    let audioConverter = AVAudioConverter(from: sourceFormat, to: destinationFormat)!
 
-    let audioConverter = try! AVAudioConverter(from: audioAsset.formatDescription, to: outputSettings)
-    let convertedFile = try! AVAudioFile(forWriting: outputURL, settings: audioConverter.outputFormat)
+    let inputFile = try! AVAudioFile(forReading: inputURL)
+    let outputFile = try! AVAudioFile(forWriting: outputURL, settings: outputFileFormat.settings)
 
-    let packetSize = 4096
-    let buffer = AVAudioPCMBuffer(pcmFormat: audioConverter.outputFormat, frameCapacity: AVAudioFrameCount(packetSize))!
+    let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFile.fileFormat.streamDescription.pointee, frameCapacity: AVAudioFrameCount(sourceFormat.mFramesPerPacket))!
+    let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFile.fileFormat.streamDescription.pointee, frameCapacity: AVAudioFrameCount(destinationFormat.sampleRate))!
 
     var totalFrames: AVAudioFramePosition = 0
     var error: NSError? = nil
 
     while true {
-        let inputStatus = audioConverter.convert(to: buffer, error: &error)
+        let inputStatus = inputFile.read(into: inputBuffer)
 
-        if inputStatus == .endOfStream {
+        if inputStatus == .endOfFile {
             break
         }
 
-        if inputStatus == .haveData {
-            let outputStatus = convertedFile.write(from: buffer)
-
-            if outputStatus != .success {
-                print("Error writing buffer to file: \(outputStatus)")
-                break
-            }
-
-            totalFrames += buffer.frameLength
+        let outputStatus = audioConverter.convert(to: outputBuffer, error: &error) { (inputStatus, outputStatus) -> AVAudioBuffer.ConverterInputStatus in
+            return inputStatus
         }
 
-        if inputStatus != .haveData {
-            print("Error converting input: \(inputStatus)")
+        if outputStatus == .error {
+            print("Error converting input: \(String(describing: error))")
             break
+        }
+
+        totalFrames += AVAudioFramePosition(outputBuffer.frameLength)
+
+        if let outputData = outputBuffer.int16ChannelData {
+            let outputPointer = outputData[0]
+            let byteCount = Int(outputBuffer.frameLength) * MemoryLayout<Int16>.size
+            let outputBuffer = UnsafeBufferPointer(start: outputPointer, count: byteCount)
+            let outputData = Data(buffer: outputBuffer)
+
+            outputFile.write(from: outputData)
         }
     }
 
-    convertedFile.framePosition = 0
-    convertedFile.length = totalFrames
+    outputFile.framePosition = 0
+    outputFile.length = totalFrames
 
     print("Conversion complete")
 }
