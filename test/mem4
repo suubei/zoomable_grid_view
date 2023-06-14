@@ -59,3 +59,67 @@ if extractAudio(inputPath: inputPath, outputPath: outputPath) {
 } else {
     print("Audio extraction failed")
 }
+
+
+
+
+import AVFoundation
+
+func decodeAACtoPCM(inputPath: String, outputPath: String) -> Bool {
+    let inputURL = URL(fileURLWithPath: inputPath)
+    let outputURL = URL(fileURLWithPath: outputPath)
+
+    // Set up the input audio file
+    let inputFile = try! AVAudioFile(forReading: inputURL)
+
+    // Set up the output audio file
+    let outputSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMBitDepthKey: 16,
+        AVSampleRateKey: inputFile.fileFormat.sampleRate,
+        AVNumberOfChannelsKey: inputFile.fileFormat.channelCount
+    ]
+
+    let outputFile = try! AVAudioFile(forWriting: outputURL, settings: outputSettings)
+
+    // Set up the audio converter
+    let inputFormat = inputFile.fileFormat
+    let outputFormat = outputFile.fileFormat
+    let converter = try! AVAudioConverter(from: inputFormat, to: outputFormat)
+
+    // Initialize the buffer for audio conversion
+    let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(inputFile.length))!
+    let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(inputFile.length))!
+
+    // Start the conversion process
+    while inputFile.framePosition < inputFile.length {
+        try! inputFile.read(into: inputBuffer)
+
+        var error: NSError?
+        let status = converter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
+            outStatus.pointee = AVAudioConverterInputStatus.haveData
+            return inputBuffer
+        }
+
+        if status != .haveData {
+            break
+        }
+
+        try! outputFile.write(from: outputBuffer)
+    }
+
+    return true
+}
+
+// Usage example
+let inputPath = "/path/to/input/audio.aac"
+let outputPath = "/path/to/output/audio.pcm"
+
+if decodeAACtoPCM(inputPath: inputPath, outputPath: outputPath) {
+    print("AAC decoding to PCM completed")
+} else {
+    print("AAC decoding to PCM failed")
+}
+
