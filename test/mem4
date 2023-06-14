@@ -13,6 +13,9 @@ import AVFoundation
 import Foundation
 import AVFoundation
 
+import Foundation
+import AVFoundation
+
 func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     // Create AVAsset object
     let asset = AVAsset(url: URL(fileURLWithPath: videoFilePath))
@@ -97,6 +100,7 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
         return false
     }
 }
+
 
 
 // 写入 WAV 文件头
