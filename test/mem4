@@ -3,6 +3,87 @@ import AVFoundation
 
 import AVFoundation
 
+import AVFoundation
+
+func convert(aacPath: String, wavPath: String) -> Bool {
+    let aacURL = URL(fileURLWithPath: aacPath)
+    let wavURL = URL(fileURLWithPath: wavPath)
+    
+    let aacAsset = AVURLAsset(url: aacURL)
+    let wavAssetWriter: AVAssetWriter
+    
+    do {
+        wavAssetWriter = try AVAssetWriter(outputURL: wavURL, fileType: .wav)
+    } catch {
+        print("Failed to create AVAssetWriter: \(error)")
+        return false
+    }
+    
+    let aacTrack = aacAsset.tracks(withMediaType: .audio).first
+    let wavOutputSettings = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMBitDepthKey: 16,
+        AVNumberOfChannelsKey: 2,
+        AVSampleRateKey: 44100
+    ] as [String : Any]
+    
+    let wavInput = AVAssetWriterInput(mediaType: .audio, outputSettings: wavOutputSettings)
+    
+    if let aacTrack = aacTrack {
+        wavInput.expectsMediaDataInRealTime = false
+        wavAssetWriter.add(wavInput)
+        
+        let assetReader: AVAssetReader
+        
+        do {
+            assetReader = try AVAssetReader(asset: aacAsset)
+        } catch {
+            print("Failed to create AVAssetReader: \(error)")
+            return false
+        }
+        
+        let aacOutputSettings = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMBitDepthKey: 16,
+            AVNumberOfChannelsKey: 2,
+            AVSampleRateKey: 44100
+        ] as [String : Any]
+        
+        let aacOutput = AVAssetReaderTrackOutput(track: aacTrack, outputSettings: aacOutputSettings)
+        assetReader.add(aacOutput)
+        
+        wavAssetWriter.startWriting()
+        assetReader.startReading()
+        
+        let audioTrackOutput = assetReader.outputs.first!
+        
+        while let sampleBuffer = audioTrackOutput.copyNextSampleBuffer() {
+            wavInput.append(sampleBuffer)
+        }
+        
+        wavInput.markAsFinished()
+        wavAssetWriter.finishWriting {
+            print("AAC to WAV conversion completed successfully.")
+        }
+        
+        return true
+    } else {
+        print("Failed to find audio track in the AAC file.")
+        return false
+    }
+}
+
+// Usage example:
+let aacPath = "/path/to/input.aac"
+let wavPath = "/path/to/output.wav"
+let success = convert(aacPath: aacPath, wavPath: wavPath)
+print("Conversion successful: \(success)")
+
+
 func extractAudio(videoFilePath: String, outputFilePath: String) -> Bool {
     let videoURL = URL(fileURLWithPath: videoFilePath)
     let outputURL = URL(fileURLWithPath: outputFilePath)
