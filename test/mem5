@@ -1,59 +1,36 @@
 import AVFoundation
 
-func convertM4AToWAV(inputURL: URL, outputURL: URL) {
-    let asset = AVURLAsset(url: inputURL)
-    let audioTrack = asset.tracks(withMediaType: AVMediaType.audio).first!
-
-    let sourceFormat = audioTrack.formatDescription!.audioStreamBasicDescription!.pointee
-    let destinationFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: sourceFormat.mSampleRate, channels: sourceFormat.mChannelsPerFrame, interleaved: false)!
-
-    let audioConverter = AVAudioConverter(from: sourceFormat, to: destinationFormat)!
-
-    let inputFile = try! AVAudioFile(forReading: inputURL)
-    let outputFile = try! AVAudioFile(forWriting: outputURL, settings: outputFileFormat.settings)
-
-    let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFile.fileFormat.streamDescription.pointee, frameCapacity: AVAudioFrameCount(sourceFormat.mFramesPerPacket))!
-    let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFile.fileFormat.streamDescription.pointee, frameCapacity: AVAudioFrameCount(destinationFormat.sampleRate))!
-
-    var totalFrames: AVAudioFramePosition = 0
-    var error: NSError? = nil
-
-    while true {
-        let inputStatus = inputFile.read(into: inputBuffer)
-
-        if inputStatus == .endOfFile {
-            break
-        }
-
-        let outputStatus = audioConverter.convert(to: outputBuffer, error: &error) { (inputStatus, outputStatus) -> AVAudioBuffer.ConverterInputStatus in
-            return inputStatus
-        }
-
-        if outputStatus == .error {
-            print("Error converting input: \(String(describing: error))")
-            break
-        }
-
-        totalFrames += AVAudioFramePosition(outputBuffer.frameLength)
-
-        if let outputData = outputBuffer.int16ChannelData {
-            let outputPointer = outputData[0]
-            let byteCount = Int(outputBuffer.frameLength) * MemoryLayout<Int16>.size
-            let outputBuffer = UnsafeBufferPointer(start: outputPointer, count: byteCount)
-            let outputData = Data(buffer: outputBuffer)
-
-            outputFile.write(from: outputData)
-        }
+func convertM4AToWAV(inputURL: URL, outputURL: URL) -> Bool {
+    let inputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44100, channels: 2, interleaved: false)
+    let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 44100, channels: 2, interleaved: false)
+    
+    guard let inputAudioFile = try? AVAudioFile(forReading: inputURL),
+          let outputAudioFile = try? AVAudioFile(forWriting: outputURL, settings: outputFormat!.settings) else {
+        return false
     }
-
-    outputFile.framePosition = 0
-    outputFile.length = totalFrames
-
-    print("Conversion complete")
+    
+    let audioConverter = AVAudioConverter(from: inputFormat!, to: outputFormat!)
+    
+    let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputAudioFile.processingFormat, frameCapacity: AVAudioFrameCount(inputAudioFile.length))
+    
+    guard let converter = audioConverter,
+          let buffer = inputBuffer else {
+        return false
+    }
+    
+    do {
+        try inputAudioFile.read(into: buffer)
+        
+        let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat!, frameCapacity: buffer.frameCapacity)
+        
+        let convertedFrameCount = try converter.convert(to: outputBuffer, from: buffer.frameCount)
+        
+        outputBuffer.frameLength = convertedFrameCount
+        
+        try outputAudioFile.write(from: outputBuffer)
+    } catch {
+        return false
+    }
+    
+    return true
 }
-
-// Usage example
-let inputURL = URL(fileURLWithPath: "input.m4a")
-let outputURL = URL(fileURLWithPath: "output.wav")
-
-convertM4AToWAV(inputURL: inputURL, outputURL: outputURL)
