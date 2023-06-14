@@ -1,121 +1,156 @@
+import Foundation
 import AVFoundation
 
-func extractAudioFromMP4(videoFilePath: String, wavFilePath: String) -> Bool {
+func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
+    // 创建 AVAsset 对象
     let asset = AVAsset(url: URL(fileURLWithPath: videoFilePath))
     
+    // 创建 AVAssetReader 对象
+    guard let assetReader = try? AVAssetReader(asset: asset) else {
+        print("无法创建 AVAssetReader")
+        return false
+    }
+    
+    // 获取音频轨道
     guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
         print("未找到音频轨道")
         return false
     }
     
+    // 配置音频输出设置
     let outputSettings: [String: Any] = [
         AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
         AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsNonInterleaved: false
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false
     ]
     
-    let outputURL = URL(fileURLWithPath: wavFilePath)
+    // 创建 AVAssetReaderTrackOutput 对象
+    let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
     
-    do {
-        let assetReader = try AVAssetReader(asset: asset)
-        let trackOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+    // 将输出添加到读取器
+    assetReader.add(audioOutput)
+    
+    // 开始读取
+    assetReader.startReading()
+    
+    // 创建 PCM 文件输出流
+    guard let wavFile = OutputStream(toFileAtPath: wavFilePath, append: false) else {
+        print("无法创建 PCM 文件")
+        return false
+    }
+    
+    // 打开 PCM 文件输出流
+    wavFile.open()
+    
+    // 写入 WAV 文件头
+    writeWavHeader(to: wavFile, format: audioTrack.formatDescription)
+    
+    // 读取并写入音频数据
+    let buffer = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
+    
+    while assetReader.status == .reading {
+        let sampleBuffer = audioOutput.copyNextSampleBuffer()
         
-        assetReader.add(trackOutput)
-        
-        assetReader.startReading()
-        
-        let fileOutput = FileHandle(forWritingAtPath: wavFilePath)
-        fileOutput?.truncateFile(atOffset: 0)
-        
-        guard let audioFormat = audioTrack.formatDescriptions.first as? CMAudioFormatDescription else {
-            print("无法获取音频格式描述")
-            return false
+        if let buffer = sampleBuffer?.audioBufferList.pointee.mBuffers {
+            let data = Data(bytes: buffer.mData!, count: Int(buffer.mDataByteSize))
+            
+            _ = data.withUnsafeBytes { (ptr: UnsafePointer<Int8>) -> Int in
+                let pointer = UnsafeMutablePointer<Int8>(mutating: ptr)
+                wavFile.write(pointer, maxLength: data.count)
+                return data.count
+            }
         }
         
-        let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(audioFormat)?.pointee
-        
-        let channels = asbd?.mChannelsPerFrame ?? 0
-        let sampleRate = asbd?.mSampleRate ?? 0
-        
-        let audioFormatSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: sampleRate,
-            AVNumberOfChannelsKey: channels,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsNonInterleaved: false,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false
-        ]
-        
-        let audioFormat = AVAudioFormat(settings: audioFormatSettings)
-        let audioFile = try AVAudioFile(forWriting: outputURL, settings: audioFormat!.settings)
-        
-        while let sampleBuffer = trackOutput.copyNextSampleBuffer() {
-            let presentationTimeStamp = CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer)
-            
-            guard let audioBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
-                print("无法获取 PCM 缓冲区")
-                return false
-            }
-            
-            var blockBuffer: CMBlockBuffer?
-            var audioBufferList = AudioBufferList(
-                mNumberBuffers: 1,
-                mBuffers: AudioBuffer(
-                    mNumberChannels: UInt32(channels),
-                    mDataByteSize: CMBlockBufferGetDataLength(audioBuffer),
-                    mData: nil
-                )
-            )
-            
-            let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-                sampleBuffer,
-                bufferListSizeNeededOut: nil,
-                bufferListOut: &audioBufferList,
-                bufferListSize: MemoryLayout<AudioBufferList>.size,
-                blockBufferAllocator: nil,
-                blockBufferMemoryAllocator: nil,
-                flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-                blockBufferOut: &blockBuffer
-            )
-            
-            guard status == 0 else {
-                print("无法获取 PCM 缓冲区")
-                return false
-            }
-            
-            let audioBufferData = Data(bytes: audioBufferList.mBuffers.mData!, count: Int(audioBufferList.mBuffers.mDataByteSize))
-            
-            let audioBufferPCM = AVAudioPCMBuffer(pcmFormat: audioFormat!, frameCapacity: UInt32(audioBufferData.count) / audioFormat!.streamDescription.pointee.mBytesPerFrame)
-            
-            audioBufferPCM?.frameLength = audioBufferPCM!.frameCapacity
-            audioBufferData.copyBytes(to: UnsafeMutableBufferPointer(start: audioBufferPCM!.int16ChannelData![0], count: audioBufferData.count / MemoryLayout<Int16>.size))
-            
-            try audioFile.write(from: audioBufferPCM!)
-            
-            CMSampleBufferInvalidate(sampleBuffer)
-        }
-        
-        assetReader.cancelReading()
-        fileOutput?.closeFile()
-        
-        print("音频已解码并保存为 WAV 文件：\(wavFilePath)")
+        CMSampleBufferInvalidate(sampleBuffer)
+    }
+    
+    // 释放资源
+    buffer.deallocate()
+    wavFile.close()
+    
+    if assetReader.status == .completed {
+        print("音轨已成功提取并保存为 PCM 文件：\(wavFilePath)")
         return true
-    } catch {
-        print("音频解码失败：\(error)")
+    } else {
+        print("提取音轨失败")
         return false
     }
 }
 
-// 使用示例
-let videoFilePath = "path/to/inputfile.mp4"
-let wavFilePath = "path/to/outputfile.wav"
-
-let extractionSuccess = extractAudioFromMP4(videoFilePath: videoFilePath, wavFilePath: wavFilePath)
-if extractionSuccess {
-    print("音频提取和解码成功")
-} else {
-    print("音频提取和解码失败")
+// 写入 WAV 文件头
+func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescription) {
+    var basicDescription = AudioStreamBasicDescription()
+    let formatDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)
+    memcpy(&basicDescription, formatDescription, MemoryLayout<AudioStreamBasicDescription>.size)
+    
+    // WAV 文件头信息
+    var wavHeader = WavHeader()
+    wavHeader.riffChunkID = "RIFF".toUInt32()
+    wavHeader.riffChunkSize = 0
+    wavHeader.waveChunkID = "WAVE".toUInt32()
+    wavHeader.formatChunkID = "fmt ".toUInt32()
+    wavHeader.formatChunkSize = 16
+    wavHeader.audioFormat = kAudioFormatLinearPCM
+    wavHeader.numChannels = basicDescription.mChannelsPerFrame
+    wavHeader.sampleRate = Int32(basicDescription.mSampleRate)
+    wavHeader.byteRate = Int32(basicDescription.mBytesPerFrame * basicDescription.mSampleRate)
+    wavHeader.blockAlign = basicDescription.mBytesPerFrame
+    wavHeader.bitsPerSample = 16
+    wavHeader.dataChunkID = "data".toUInt32()
+    wavHeader.dataChunkSize = 0
+    
+    // 写入 WAV 文件头
+    withUnsafeBytes(of: &wavHeader) { (ptr: UnsafeRawBufferPointer) -> Void in
+        outputStream.write(ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), maxLength: MemoryLayout<WavHeader>.size)
+    }
 }
+
+// WAV 文件头结构体
+struct WavHeader {
+    var riffChunkID: UInt32
+    var riffChunkSize: UInt32
+    var waveChunkID: UInt32
+    var formatChunkID: UInt32
+    var formatChunkSize: UInt32
+    var audioFormat: UInt16
+    var numChannels: UInt16
+    var sampleRate: Int32
+    var byteRate: Int32
+    var blockAlign: UInt16
+    var bitsPerSample: UInt16
+    var dataChunkID: UInt32
+    var dataChunkSize: UInt32
+    
+    init() {
+        riffChunkID = 0
+        riffChunkSize = 0
+        waveChunkID = 0
+        formatChunkID = 0
+        formatChunkSize = 0
+        audioFormat = 0
+        numChannels = 0
+        sampleRate = 0
+        byteRate = 0
+        blockAlign = 0
+        bitsPerSample = 0
+        dataChunkID = 0
+        dataChunkSize = 0
+    }
+}
+
+// 辅助方法：将字符串转为 UInt32
+extension String {
+    func toUInt32() -> UInt32 {
+        let utf8Data = data(using: .utf8)!
+        let value = utf8Data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        return UInt32(bigEndian: value)
+    }
+}
+
+// 使用示例
+let videoFilePath = "/path/to/inputfile.mp4"
+let wavFilePath = "/path/to/outputfile.wav"
+
+let success = extractAudioToWav(videoFilePath: videoFilePath, wavFilePath: wavFilePath)
+print("提取音轨并保存为 PCM 文件结果：\(success)")
