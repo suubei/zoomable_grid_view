@@ -1,130 +1,111 @@
 import AVFoundation
 
-func extractAudioFromVideo(inputPath: String, outputPath: String) -> Bool {
-    let inputURL = URL(fileURLWithPath: inputPath)
-    let outputURL = URL(fileURLWithPath: outputPath)
-
-    // Create the AVAsset from the input video file
-    let asset = AVAsset(url: inputURL)
-
-    // Create an AVAssetReader to read the audio track
-    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-        print("No audio track found")
+func extractAudio(videoPath: String, aacPath: String) -> Bool {
+    // 创建视频文件URL
+    guard let videoURL = URL(string: videoPath) else {
         return false
     }
-
-    let outputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMBitDepthKey: 16,
-        AVSampleRateKey: 44100,
-        AVNumberOfChannelsKey: 2
-    ]
-
-    let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
-    let reader = try! AVAssetReader(asset: asset)
-    reader.add(readerOutput)
-
-    // Create an AVAssetWriter to write the audio track in PCM format
-    let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: outputSettings)
-    let writer = try! AVAssetWriter(outputURL: outputURL, fileType: .caf)
-    writer.add(writerInput)
-
-    // Start reading and writing the audio track
-    reader.startReading()
-    writer.startWriting()
-    writer.startSession(atSourceTime: .zero)
-
-    let writeSemaphore = DispatchSemaphore(value: 0)
-    writerInput.requestMediaDataWhenReady(on: DispatchQueue.global()) {
-        while writerInput.isReadyForMoreMediaData {
-            guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
-                writerInput.markAsFinished()
-                writer.finishWriting(completionHandler: {
-                    writeSemaphore.signal()
-                })
-                break
-            }
-            writerInput.append(sampleBuffer)
+    
+    // 创建保存音频数据的临时文件URL
+    let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("temp.aac")
+    
+    // 创建保存解码后音频数据的文件URL
+    let pcmURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("temp.pcm")
+    
+    // 创建保存转换后音频数据的文件URL
+    let wavURL = URL(fileURLWithPath: aacPath)
+    
+    do {
+        // 创建AVAsset对象
+        let asset = AVAsset(url: videoURL)
+        
+        // 创建AVAssetExportSession对象
+        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+            return false
         }
-    }
-
-    _ = writeSemaphore.wait(timeout: .distantFuture)
-
-    return writer.status == .completed
-}
-
-// Usage example
-let inputPath = "/path/to/input/video.mp4"
-let outputPath = "/path/to/output/audio.pcm"
-
-if extractAudioFromVideo(inputPath: inputPath, outputPath: outputPath) {
-    print("Audio extraction completed")
-} else {
-    print("Audio extraction failed")
-}
-
-
-import AVFoundation
-
-func convertPCMtoWAV(inputPath: String, outputPath: String) -> Bool {
-    let inputURL = URL(fileURLWithPath: inputPath)
-    let outputURL = URL(fileURLWithPath: outputPath)
-
-    // Set up the input audio file
-    guard let inputFile = try? AVAudioFile(forReading: inputURL) else {
-        print("Failed to open input audio file")
-        return false
-    }
-
-    // Set up the output audio file
-    let outputSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMBitDepthKey: 16,
-        AVSampleRateKey: inputFile.fileFormat.sampleRate,
-        AVNumberOfChannelsKey: inputFile.fileFormat.channelCount
-    ]
-
-    guard let outputFile = try? AVAudioFile(forWriting: outputURL, settings: outputSettings, commonFormat: .pcmFormatInt16, interleaved: false) else {
-        print("Failed to create output audio file")
-        return false
-    }
-
-    // Initialize the buffer for audio conversion
-    guard let buffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat, frameCapacity: AVAudioFrameCount(inputFile.length)) else {
-        print("Failed to create audio buffer")
-        return false
-    }
-
-    // Read the audio data from the input file
-    do {
-        try inputFile.read(into: buffer)
+        
+        // 设置输出URL和文件类型
+        exportSession.outputURL = tmpURL
+        exportSession.outputFileType = .m4a
+        
+        // 导出音频数据到临时文件
+        exportSession.exportAsynchronously {
+            if exportSession.status == .completed {
+                do {
+                    // 创建AVAssetReader对象
+                    let reader = try AVAssetReader(asset: asset)
+                    
+                    // 获取音频轨道
+                    guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
+                        return
+                    }
+                    
+                    // 创建音频输出设置
+                    let outputSettings: [String: Any] = [
+                        AVFormatIDKey: kAudioFormatLinearPCM,
+                        AVLinearPCMIsFloatKey: false,
+                        AVLinearPCMIsBigEndianKey: false,
+                        AVLinearPCMBitDepthKey: 16
+                    ]
+                    
+                    // 创建音频输出对象
+                    let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+                    
+                    // 添加输出到AVAssetReader对象
+                    reader.add(output)
+                    
+                    // 开始读取音频数据
+                    reader.startReading()
+                    
+                    // 创建音频写入器
+                    let audioWriter = try AVAudioFile(forWriting: pcmURL, settings: outputSettings)
+                    
+                    // 读取并写入音频数据
+                    while let sampleBuffer = output.copyNextSampleBuffer() {
+                        guard let pcmBuffer = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, bufferListSizeNeededOut: nil, bufferListOut: nil, bufferListSize: MemoryLayout<AudioBufferList>.size, blockBufferAllocator: nil, blockBufferMemoryAllocator: nil, flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, withRetainedBlockBufferOut: nil) else {
+                            continue
+                        }
+                        
+                        let bufferList = UnsafeMutableAudioBufferListPointer(pcmBuffer)
+                        
+                        for buffer in bufferList {
+                            let audioBuffer = buffer.mData?.assumingMemoryBound(to: UInt8.self)
+                            let audioData = AVAudioPCMBuffer(pcmFormat: audioWriter.processingFormat, frameCapacity: AVAudioFrameCount(buffer.mDataByteSize))
+                            
+                            audioData.frameLength = audioData.frameCapacity
+                            let audioDataBuffer = audioData.audioBufferList.pointee.mBuffers
+                            
+                            memcpy(audioDataBuffer.mData, audioBuffer, Int(audioDataBuffer.mDataByteSize))
+                            
+                            try audioWriter.write(from: audioData)
+                        }
+                    }
+                    
+                    // 完成音频写入
+                    audioWriter.close()
+                    
+                    // 转换pcm文件为wav文件
+                    let pcmData = try Data(contentsOf: pcmURL)
+                    try pcmData.write(to: wavURL, options: .atomic)
+                    
+                    // 删除临时文件
+                    try FileManager.default.removeItem(at: tmpURL)
+                    try FileManager.default.removeItem(at: pcmURL)
+                    
+                    print("音频提取成功")
+                    
+                } catch {
+                    print("音频提取失败：\(error.localizedDescription)")
+                }
+            } else {
+                print("音频导出失败")
+            }
+        }
+        
+        return true
+        
     } catch {
-        print("Failed to read from input audio file: \(error)")
+        print("创建AVAsset失败：\(error.localizedDescription)")
         return false
     }
-
-    // Write the audio data to the output file
-    do {
-        try outputFile.write(from: buffer)
-    } catch {
-        print("Failed to write to output audio file: \(error)")
-        return false
-    }
-
-    return true
 }
-
-// Usage example
-let inputPath = "/path/to/input/audio.pcm"
-let outputPath = "/path/to/output/audio.wav"
-
-if convertPCMtoWAV(inputPath: inputPath, outputPath: outputPath) {
-    print("PCM to WAV conversion completed")
-} else {
-    print("PCM to WAV conversion failed")
-}
-
