@@ -78,20 +78,21 @@ func extractAudioToWav(videoFilePath: String, wavFilePath: String) -> Bool {
     }
 }
 
-// 写入 WAV 文件头
+
+// Write WAV file header
 func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescription) {
     var basicDescription = AudioStreamBasicDescription()
     let formatDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)
     memcpy(&basicDescription, formatDescription, MemoryLayout<AudioStreamBasicDescription>.size)
     
-    // WAV 文件头信息
+    // WAV file header information
     var wavHeader = WavHeader()
     wavHeader.riffChunkID = "RIFF".toUInt32()
     wavHeader.riffChunkSize = 0
     wavHeader.waveChunkID = "WAVE".toUInt32()
     wavHeader.formatChunkID = "fmt ".toUInt32()
     wavHeader.formatChunkSize = 16
-    wavHeader.audioFormat = kAudioFormatLinearPCM
+    wavHeader.audioFormat = basicDescription.mFormatID.rawValue // Assign the rawValue of the AudioFormatId enum
     wavHeader.numChannels = basicDescription.mChannelsPerFrame
     wavHeader.sampleRate = Int32(basicDescription.mSampleRate)
     wavHeader.byteRate = Int32(basicDescription.mBytesPerFrame * basicDescription.mSampleRate)
@@ -100,10 +101,12 @@ func writeWavHeader(to outputStream: OutputStream, format: CMAudioFormatDescript
     wavHeader.dataChunkID = "data".toUInt32()
     wavHeader.dataChunkSize = 0
     
-    // 写入 WAV 文件头
+    // Write WAV file header
     withUnsafeBytes(of: &wavHeader) { (ptr: UnsafeRawBufferPointer) -> Void in
         outputStream.write(ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), maxLength: MemoryLayout<WavHeader>.size)
     }
+}
+
 }
 
 // WAV 文件头结构体
